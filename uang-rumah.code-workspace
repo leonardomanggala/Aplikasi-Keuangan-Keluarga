@@ -1,0 +1,7 @@
+{
+  "folders": [{ "path": "." }],
+  "settings": {
+    "files.exclude": { ".npm-cache": true },
+    "search.exclude": { "node_modules": true, "dist": true, ".npm-cache": true, "test-results": true }
+  }
+}

@@ -1,0 +1,8 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {newBook,summary,validateTransaction,getBudget,demoBook,today} from '../src/finance.mjs';
+test('saldo carries prior periods while monthly totals exclude them',()=>{const b=newBook('Test','Rina',1000);b.transactions=[{amount:500,type:'income',date:'2026-08-02',created:1},{amount:200,type:'expense',date:'2026-09-01',created:2},{amount:700,type:'income',date:'2026-10-01',created:3}];const s=summary(b,'2026-09');assert.equal(s.balance,1300);assert.equal(s.income,0);assert.equal(s.expense,200)});
+test('deleting or changing expense recalculates balance',()=>{const b=newBook('Test','Rina',1000);b.transactions=[{amount:200,type:'expense',date:'2026-09-01',created:1}];assert.equal(summary(b,'2026-09').balance,800);b.transactions[0].amount=300;assert.equal(summary(b,'2026-09').balance,700);b.transactions=[];assert.equal(summary(b,'2026-09').balance,1000)});
+test('budget edits are month scoped including explicit zero',()=>{const b=newBook(),c=b.categories[0];b.budgets={'2026-09':{[c.id]:0}};assert.equal(getBudget(b,c,'2026-09'),0);assert.equal(getBudget(b,c,'2026-10'),2000000)});
+test('invalid financial input is rejected',()=>{for(const amount of [0,-1,1.2,NaN,Infinity,1000000000000])assert.throws(()=>validateTransaction({amount,date:'2026-09-01',category:'dapur'}));assert.doesNotThrow(()=>validateTransaction({amount:65000,date:'2026-09-01',category:'dapur'}))});
+test('demo totals are internally consistent',()=>{const s=summary(demoBook(),today().slice(0,7));assert.equal(s.income,8000000);assert.equal(s.expense,4750000);assert.equal(s.balance,4250000);assert.equal(s.budget,6000000)});
