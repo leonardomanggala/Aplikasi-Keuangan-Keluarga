@@ -1,0 +1,8 @@
+.git
+.npm-cache
+node_modules
+dist
+test-results
+tests
+.env*
+*.code-workspace
