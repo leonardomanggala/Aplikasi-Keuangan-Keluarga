@@ -14,3 +14,31 @@
 /* Keep the sign-in heading close to the supplied brand on mobile. */
 .auth-mobile-brand{margin-bottom:24px}.auth-description{margin-bottom:24px}
 
+/* Authentication layout follows the supplied two-panel reference. */
+.auth-layout{grid-template-columns:46% 54%;background:#fcfdff}
+.auth-story{padding:clamp(48px,6vw,96px) 12% 48px;background:#0958e8;justify-content:initial}
+.auth-story .brand{width:260px;max-width:100%;padding:0;background:transparent;border-radius:0}
+.auth-story .brand img{width:100%;height:auto;max-width:none}
+.auth-story>div:nth-child(2){margin-top:auto;padding-top:100px}
+.auth-story h1{font-size:clamp(36px,3.15vw,62px);line-height:1.28;margin:24px 0 22px;letter-spacing:-1.5px}
+.auth-story p{font-size:clamp(14px,1.05vw,20px);line-height:1.75}
+.auth-story>small{margin-top:clamp(48px,6vw,100px)}
+.auth-story .eyebrow{font-size:12px;letter-spacing:2px}
+.auth-panel{padding:clamp(48px,6vw,100px) 40px;align-items:flex-start}
+.auth-content{max-width:440px}
+.auth-content h1{font-size:clamp(28px,2vw,38px);line-height:1.35}
+.auth-description{font-size:15px;margin:14px 0 28px}
+.auth-content .notice{padding:18px;margin:0 0 24px;font-size:13px}
+.auth-content .field{font-size:15px;margin-bottom:22px;gap:10px}
+.auth-content .field input{min-height:54px;padding:15px 17px}
+.auth-content .password-input input{padding-right:48px}
+.auth-content .password-input .icon-btn{top:7px}
+.auth-content .full{min-height:54px;font-size:16px}
+.auth-content .forgot{font-size:13px;margin:-2px 0 24px auto}
+.auth-divider{margin:30px 0 26px}
+.auth-content>.text-btn.full{font-size:14px;min-height:44px;margin-top:5px}
+.auth-switch{margin-top:30px;font-size:13px}
+.auth-foot{margin-top:40px;font-size:12px}
+@media(min-width:1700px){.auth-content{max-width:555px}.auth-story .brand{width:320px}.auth-content .field{font-size:18px}.auth-content .field input,.auth-content .full{min-height:65px;font-size:19px}.auth-description{font-size:19px;margin-bottom:35px}.auth-content .notice{font-size:16px;padding:22px;margin-bottom:28px}.auth-content .field{margin-bottom:28px}.auth-content .password-input .icon-btn{top:12px}.auth-content .forgot{font-size:16px;margin-bottom:30px}.auth-switch{font-size:16px;margin-top:38px}.auth-switch button{font-size:16px}.auth-foot{margin-top:45px;font-size:14px}.auth-content>.text-btn.full{font-size:18px}.auth-story>small{font-size:14px}}
+@media(max-width:760px){.auth-layout{display:block}.auth-panel{padding:32px 24px 40px;align-items:center}.auth-content{max-width:430px}.auth-content h1{font-size:27px}.auth-description{font-size:14px;margin:12px 0 24px}.auth-content .notice{font-size:12px;padding:15px}.auth-content .field{font-size:14px;margin-bottom:20px}.auth-content .full{font-size:15px;min-height:50px}.auth-switch{margin-top:24px}.auth-foot{margin-top:28px}}
+
