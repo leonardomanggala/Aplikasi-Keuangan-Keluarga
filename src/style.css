@@ -14,17 +14,18 @@
 /* Keep the sign-in heading close to the supplied brand on mobile. */
 .auth-mobile-brand{margin-bottom:24px}.auth-description{margin-bottom:24px}
 
-.sidebar-heading{display:flex;align-items:center;gap:8px}
+.sidebar-heading{display:flex;align-items:center}
 .sidebar-heading .brand{flex:1;min-width:0}
-.sidebar-toggle{width:36px;height:36px;min-width:36px;min-height:36px;padding:0;display:grid;place-items:center;gap:0;background:#edf3ff;border-radius:10px;color:#005bea;flex-shrink:0}
+.sidebar-toggle{position:absolute;top:98px;right:-14px;z-index:2;width:28px;height:28px;min-width:28px;min-height:28px;padding:0;display:grid;place-items:center;gap:0;background:#174a91;border:2px solid #fff;border-radius:6px;color:#fff;box-shadow:0 3px 9px #163b7030;flex-shrink:0}
 .sidebar-toggle svg{display:block;margin:0}
+.sidebar-toggle:hover{background:#103b78;filter:none}
 @media(min-width:761px){
  .sidebar{transition:width .2s ease,padding .2s ease}
  .workspace{transition:margin-left .2s ease}
  .sidebar-collapsed .sidebar{width:80px;padding:28px 15px;border-right:0;box-shadow:inset -1px 0 #e8edf8}
  .sidebar-collapsed .workspace{margin-left:80px}
  .sidebar-collapsed .sidebar-heading{width:50px;height:50px;justify-content:center;gap:0}
- .sidebar-collapsed .sidebar-toggle{width:44px;height:44px;min-width:44px}
+ .sidebar-collapsed .sidebar-toggle{top:98px;right:-14px;width:28px;height:28px;min-width:28px;min-height:28px}
  .sidebar-collapsed .sidebar-heading .brand,.sidebar-collapsed .sidebar-book,.sidebar-collapsed .sidebar-label,.sidebar-collapsed .keycap,.sidebar-collapsed .sidebar-bottom{display:none}
  .sidebar-collapsed .sidebar nav{margin-top:24px;gap:10px;justify-items:center}
  .sidebar-collapsed .sidebar nav button{display:grid;place-items:center;width:48px;height:48px;min-height:48px;padding:0;gap:0;border-radius:12px;position:relative}
