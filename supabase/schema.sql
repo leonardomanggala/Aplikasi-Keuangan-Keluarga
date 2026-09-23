@@ -7,6 +7,9 @@ create table if not exists public.books (
  updated_at timestamptz not null default now()
 );
 alter table public.books enable row level security;
+drop policy if exists "Owner can read book" on public.books;
+drop policy if exists "Owner can create book" on public.books;
+drop policy if exists "Owner can update book" on public.books;
 create policy "Owner can read book" on public.books for select to authenticated using ((select auth.uid()) = user_id);
 create policy "Owner can create book" on public.books for insert to authenticated with check ((select auth.uid()) = user_id);
 create policy "Owner can update book" on public.books for update to authenticated using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);

@@ -16,7 +16,8 @@
 
 .sidebar-heading{display:flex;align-items:center}
 .sidebar-heading .brand{flex:1;min-width:0}
-.sidebar-toggle{position:absolute;top:98px;right:-14px;z-index:2;width:28px;height:28px;min-width:28px;min-height:28px;padding:0;display:grid;place-items:center;gap:0;background:#174a91;border:2px solid #fff;border-radius:6px;color:#fff;box-shadow:0 3px 9px #163b7030;flex-shrink:0}
+.topbar-start{display:flex;align-items:center;gap:14px}
+.sidebar-toggle{position:static;width:28px;height:28px;min-width:28px;min-height:28px;padding:0;display:grid;place-items:center;gap:0;background:#174a91;border:0;border-radius:6px;color:#fff;box-shadow:none;flex-shrink:0}
 .sidebar-toggle svg{display:block;margin:0}
 .sidebar-toggle:hover{background:#103b78;filter:none}
 @media(min-width:761px){
@@ -25,11 +26,10 @@
  .sidebar-collapsed .sidebar{width:80px;padding:28px 15px;border-right:0;box-shadow:inset -1px 0 #e8edf8}
  .sidebar-collapsed .workspace{margin-left:80px}
  .sidebar-collapsed .sidebar-heading{width:50px;height:50px;justify-content:center;gap:0}
- .sidebar-collapsed .sidebar-toggle{top:98px;right:-14px;width:28px;height:28px;min-width:28px;min-height:28px}
  .sidebar-collapsed .sidebar-heading .brand,.sidebar-collapsed .sidebar-book,.sidebar-collapsed .sidebar-label,.sidebar-collapsed .keycap,.sidebar-collapsed .sidebar-bottom{display:none}
  .sidebar-collapsed .sidebar nav{margin-top:24px;gap:10px;justify-items:center}
  .sidebar-collapsed .sidebar nav button{display:grid;place-items:center;width:48px;height:48px;min-height:48px;padding:0;gap:0;border-radius:12px;position:relative}
- .sidebar-collapsed .sidebar nav button svg{display:block;margin:0;width:22px;height:22px}
+ .sidebar-collapsed .sidebar nav button>svg{position:absolute;left:50%;top:50%;display:block;width:22px;height:22px;margin:0;transform:translate(-50%,-50%)}
  .sidebar-collapsed .sidebar nav button.active:before{display:none}
 }
 
@@ -80,4 +80,5 @@
  .stat strong{font-size:24px}
 }
 @media(max-width:760px){.auth-layout{display:block}.auth-panel{padding:32px 24px 40px;align-items:center}.auth-content{max-width:430px}.auth-content h1{font-size:27px}.auth-description{font-size:14px;margin:12px 0 24px}.auth-content .notice{font-size:12px;padding:15px}.auth-content .field{font-size:14px;margin-bottom:20px}.auth-content .full{font-size:15px;min-height:50px}.auth-switch{margin-top:24px}.auth-foot{margin-top:28px}}
+@media(max-width:760px){.topbar-start{display:none}}
 
