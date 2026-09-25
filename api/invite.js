@@ -22,6 +22,7 @@ export default async function handler(req,res){
  if(error){
   const message=error.message?.toLowerCase()||'';
   if(message.includes('already')||message.includes('registered'))return res.status(200).json({sent:false,existing:true});
+  if(error.status===429||message.includes('rate limit'))return res.status(429).json({error:'Batas email Supabase tercapai. Tunggu hingga satu jam sejak percobaan terakhir, lalu kirim undangan sekali lagi.'});
   return res.status(502).json({error:'Undangan tersimpan, tetapi email belum dapat dikirim.',detail:error.message});
  }
  return res.status(200).json({sent:true});
