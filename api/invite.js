@@ -16,7 +16,8 @@ export default async function handler(req,res){
  if(ownerError||!owner)return res.status(403).json({error:'Hanya pemilik buku yang dapat mengirim undangan.'});
  const {data:pending}=await admin.from('book_invites').select('id').eq('book_user_id',owner.book_user_id).eq('email',email).eq('status','pending').maybeSingle();
  if(!pending)return res.status(403).json({error:'Buat undangan di aplikasi terlebih dahulu.'});
- const redirectTo=process.env.APP_URL||'https://uang-rumah-one.vercel.app/';
+ const appUrl=process.env.APP_URL||'https://uang-rumah-one.vercel.app/';
+ const redirectTo=`${appUrl.replace(/\/$/,'')}/?invited=1`;
  const {error}=await admin.auth.admin.inviteUserByEmail(email,{redirectTo});
  if(error){
   const message=error.message?.toLowerCase()||'';
