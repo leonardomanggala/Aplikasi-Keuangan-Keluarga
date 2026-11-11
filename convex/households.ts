@@ -8,11 +8,10 @@ async function signedInUser(ctx: any) {
   // Convex Auth's subject is the user's document ID. Resolve by that stable
   // identity first; email may be absent or differently normalized in a token.
   const userId = ctx.db.normalizeId("users", identity.subject);
-  const user = userId
-    ? await ctx.db.get(userId)
-    : identity.email
-      ? await ctx.db.query("users").withIndex("email", (q: any) => q.eq("email", identity.email.toLowerCase())).unique()
-      : null;
+  let user = userId ? await ctx.db.get(userId) : null;
+  if (!user && identity.email) {
+    user = await ctx.db.query("users").withIndex("email", (q: any) => q.eq("email", identity.email.trim().toLowerCase())).unique();
+  }
   if (!user) throw new Error("Profil pengguna tidak ditemukan.");
   return user;
 }
