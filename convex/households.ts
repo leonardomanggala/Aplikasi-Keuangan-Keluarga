@@ -3,8 +3,16 @@ import { mutationGeneric as mutation, queryGeneric as query } from "convex/serve
 
 async function signedInUser(ctx: any) {
   const identity = await ctx.auth.getUserIdentity();
-  if (!identity?.email) throw new Error("Silakan masuk terlebih dahulu.");
-  const user = await ctx.db.query("users").withIndex("email", (q: any) => q.eq("email", identity.email)).unique();
+  if (!identity) throw new Error("Silakan masuk terlebih dahulu.");
+
+  // Convex Auth's subject is the user's document ID. Resolve by that stable
+  // identity first; email may be absent or differently normalized in a token.
+  const userId = ctx.db.normalizeId("users", identity.subject);
+  const user = userId
+    ? await ctx.db.get(userId)
+    : identity.email
+      ? await ctx.db.query("users").withIndex("email", (q: any) => q.eq("email", identity.email.toLowerCase())).unique()
+      : null;
   if (!user) throw new Error("Profil pengguna tidak ditemukan.");
   return user;
 }
