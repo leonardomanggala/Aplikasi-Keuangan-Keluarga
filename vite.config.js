@@ -1,7 +1,6 @@
-import {defineConfig} from 'vite';
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
 
 export default defineConfig({
-  // NEXT_PUBLIC_* is provisioned by the Vercel Supabase integration and is
-  // intentionally safe for browser use. Secret Supabase keys stay server-only.
-  envPrefix: ['VITE_', 'NEXT_PUBLIC_'],
+  plugins: [react()],
 });

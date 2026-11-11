@@ -1,28 +1,55 @@
-# FamBudget
+# DanaKeluarga — Dashboard Keuangan Rumah Tangga
 
-A responsive Indonesian household finance web app based on the supplied Figma screenshots. React + Vite, deployable to Vercel.
+Dashboard React + Vite untuk mencatat dan menganalisis transaksi keuangan keluarga. Data pengguna, rumah tangga, preferensi grafik, dan transaksi disimpan di Convex.
 
-## Start
+## Fitur
 
-Requires Node.js 22 or newer. Run `npm install`, then `npm run dev`. Production: `npm run build`. Tests: `npm test`.
+- Daftar dan masuk dengan email serta kata sandi melalui Convex Auth.
+- Buat rumah tangga baru atau bergabung memakai kode undangan.
+- Akses anggota dan transaksi dibatasi ke rumah tangga yang sama.
+- Grafik interaktif, filter transaksi, ringkasan saldo terakhir, dan ekspor.
+- Impor CSV dengan pemeriksaan transaksi duplikat. Impor PDF belum tersedia.
+- Pengaturan nama profil, rumah tangga, dan rentang grafik.
 
-## Working now
+## Menjalankan secara lokal
 
-- Separate demo mode with browser-local persistence; no fake password authentication.
-- New demo book setup; opening balance is not counted as income.
-- Dashboard, month navigation, transaction create/edit/delete, search/type/category filtering.
-- Monthly budgets, custom categories, profile editing, CSV export with spreadsheet formula escaping.
-- Responsive phone/tablet/desktop layouts, keyboard accessible dialogs and forms.
-- Supabase email/password registration, email recovery, and private cloud persistence for every account.
+Gunakan Node.js 18 atau lebih baru.
 
-## Cloud accounts and database
+```bash
+npm install
+npm run convex:dev
+```
 
-The Vercel project is connected to Supabase. Public browser variables use the `NEXT_PUBLIC_SUPABASE_*` names supplied by the Vercel integration; the Vite configuration exposes only the `NEXT_PUBLIC_` and `VITE_` prefixes.
+Perintah Convex menghubungkan proyek ke deployment development dan menulis URL Convex ke `.env.local`. Biarkan proses Convex berjalan, lalu buka terminal kedua:
 
-After pulling the project's development environment variables into `.env.local`, run `npm run db:setup` to apply the repeatable database schema. Never place the service-role or database credentials in frontend variables.
+```bash
+npm run dev
+```
 
-Before inviting users beyond a limited test, configure the Supabase Auth Site URL and allowed redirect URLs for `https://uang-rumah-one.vercel.app`, and use production SMTP for dependable confirmation and password-reset email delivery.
+Buka URL lokal yang ditampilkan Vite, biasanya `http://localhost:5173`.
 
-The database restricts each row to its authenticated owner. Revision comparisons reject stale updates rather than overwriting another device's changes. Authentication, create/read/update persistence, and cross-account isolation have been tested against the connected database. Google Sheets sync, family invitations, receipt upload, push notifications, and full offline app installation are not implemented. Demo data remains local to one browser and is separate from cloud accounts.
+Untuk build lokal:
 
-Google Sheets can currently receive the exported CSV manually. Automatic OAuth and synchronization require a server integration and credentials. No Google tokens or private credentials are included.
+```bash
+npm run build
+```
+
+## Menyiapkan Convex
+
+Proyek ini sudah terhubung ke deployment development `danakeluarga-dashboard`. Untuk menyinkronkan perubahan backend, jalankan `npm run convex:dev`. Untuk membuat deployment production Convex, jalankan `npm run convex:deploy` dan ikuti pemilihan deployment production pada CLI.
+
+Jangan commit `.env.local`. File tersebut berisi pilihan deployment lokal. URL publik Convex untuk frontend memakai variabel `VITE_CONVEX_URL`; contoh formatnya ada di `.env.example`.
+
+## Deploy ke Vercel
+
+1. Impor repositori proyek ini ke Vercel atau deploy folder proyek memakai Vercel CLI.
+2. Gunakan build command `npm run build` dan output directory `dist` (sudah disiapkan di `vercel.json`).
+3. Tambahkan `VITE_CONVEX_URL` di environment Vercel untuk deployment yang sesuai. Untuk production, gunakan URL deployment production Convex, bukan URL development.
+4. Deploy ulang setelah menambahkan atau mengubah environment variable.
+
+Convex Auth memakai pengaturan di deployment Convex. Setelah domain Vercel production ditetapkan, atur URL situs yang diizinkan untuk deployment Convex sesuai panduan Convex Auth. Pemulihan kata sandi lewat email belum diaktifkan karena layanan pengiriman email belum dikonfigurasi.
+
+## Impor CSV
+
+CSV wajib memiliki kolom tanggal, keterangan, dan nominal. Kolom saldo, kategori, serta pemilik bersifat opsional. Beberapa nama header yang umum dalam bahasa Indonesia dan Inggris didukung; pastikan tanggal memakai format `DD/MM/YYYY` atau `YYYY-MM-DD`.
+
