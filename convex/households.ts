@@ -1,13 +1,14 @@
 import { v } from "convex/values";
 import { mutationGeneric as mutation, queryGeneric as query } from "convex/server";
+import { getAuthUserId } from "@convex-dev/auth/server";
 
 async function signedInUser(ctx: any) {
   const identity = await ctx.auth.getUserIdentity();
   if (!identity) throw new Error("Silakan masuk terlebih dahulu.");
 
-  // Convex Auth's subject is the user's document ID. Resolve by that stable
-  // identity first; email may be absent or differently normalized in a token.
-  const userId = ctx.db.normalizeId("users", identity.subject);
+  // Convex Auth's subject also includes a session suffix; use its helper to
+  // extract the actual users document ID before attempting email fallback.
+  const userId = await getAuthUserId(ctx);
   let user = userId ? await ctx.db.get(userId) : null;
   if (!user && identity.email) {
     user = await ctx.db.query("users").withIndex("email", (q: any) => q.eq("email", identity.email.trim().toLowerCase())).unique();
