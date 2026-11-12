@@ -31,6 +31,7 @@ export const addMany = mutation({
   },
   handler: async (ctx, args) => {
     const user = await currentUser(ctx);
+    const members = await ctx.db.query("users").withIndex("by_household", (q: any) => q.eq("householdId", user.householdId)).collect();
     let added = 0;
     let skipped = 0;
     let corrected = 0;
@@ -38,9 +39,9 @@ export const addMany = mutation({
       const fingerprint = `${transaction.date}_${transaction.amount}_${transaction.description.trim().toLowerCase()}`;
       const duplicate = await ctx.db.query("transactions").withIndex("by_household_fingerprint", (q: any) => q.eq("householdId", user.householdId).eq("fingerprint", fingerprint)).first();
       if (duplicate) {
-        const incomingTransfer = /\b(dari|from)\b/i.test(transaction.description) && /transfer|setoran|kirim|incoming/i.test(transaction.description);
-        if (incomingTransfer && duplicate.ownerRole !== transaction.ownerRole) {
-          await ctx.db.patch(duplicate._id, { ownerRole: transaction.ownerRole });
+        if (duplicate.ownerRole !== transaction.ownerRole) {
+          const owner = members.find(member => member.role === transaction.ownerRole);
+          await ctx.db.patch(duplicate._id, { ownerRole: transaction.ownerRole, ...(owner ? { ownerUserId: owner._id } : {}) });
           corrected++;
         }
         skipped++;
