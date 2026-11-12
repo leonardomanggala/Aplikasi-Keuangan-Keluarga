@@ -1,10 +1,15 @@
 import { v } from "convex/values";
 import { mutationGeneric as mutation, queryGeneric as query } from "convex/server";
+import { getAuthUserId } from "@convex-dev/auth/server";
 
 async function currentUser(ctx: any) {
   const identity = await ctx.auth.getUserIdentity();
-  if (!identity?.email) throw new Error("Silakan masuk terlebih dahulu.");
-  const user = await ctx.db.query("users").withIndex("email", (q: any) => q.eq("email", identity.email)).unique();
+  if (!identity) throw new Error("Silakan masuk terlebih dahulu.");
+  const userId = await getAuthUserId(ctx);
+  let user = userId ? await ctx.db.get(userId) : null;
+  if (!user && identity.email) {
+    user = await ctx.db.query("users").withIndex("email", (q: any) => q.eq("email", identity.email.trim().toLowerCase())).unique();
+  }
   if (!user?.householdId) throw new Error("Gabung atau buat rumah tangga terlebih dahulu.");
   return user;
 }
