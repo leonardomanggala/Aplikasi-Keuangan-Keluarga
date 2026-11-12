@@ -175,8 +175,9 @@ export default function App() {
     if (!indicatesIncoming) return fallbackRole;
     const members = familyState?.members || [];
     const matchedMember = members.find(member => {
-      const normalizedName = normalizeHeader(member.name || '');
-      return normalizedName.length >= 6 && normalizedText.includes(normalizedName) && ['SUAMI', 'ISTRI'].includes(member.role);
+      const nameParts = String(member.name || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().match(/[a-z]+/g) || [];
+      const significantParts = nameParts.filter(part => part.length > 1 && !['bpk', 'ibu', 'pak', 'bu', 'mr', 'mrs', 'suami', 'istri'].includes(part));
+      return significantParts.length >= 2 && significantParts.every(part => normalizedText.includes(part)) && ['SUAMI', 'ISTRI'].includes(member.role);
     });
     return matchedMember?.role || fallbackRole;
   };
@@ -326,7 +327,7 @@ export default function App() {
 
   const importTransactions = async (transactionsToImport) => {
     const result = await addTransactions({ transactions: transactionsToImport });
-    setUploadNotice({ type: 'success', msg: `Impor selesai: ${result.added} transaksi ditambahkan, ${result.skipped} duplikat dilewati.` });
+    setUploadNotice({ type: 'success', msg: `Impor selesai: ${result.added} transaksi ditambahkan, ${result.corrected || 0} label pemilik diperbaiki, ${result.skipped} duplikat dilewati.` });
     setPdfPreview(null);
   };
 
@@ -372,8 +373,9 @@ export default function App() {
         const ownerCell = ownerIndex >= 0 ? String(row[ownerIndex] || '') : '';
         const ownerCellNormalized = normalizeHeader(ownerCell);
         const matchedOwner = (familyState?.members || []).find(member => {
-          const memberName = normalizeHeader(member.name || '');
-          return memberName.length >= 6 && ownerCellNormalized.includes(memberName);
+          const nameParts = String(member.name || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().match(/[a-z]+/g) || [];
+          const significantParts = nameParts.filter(part => part.length > 1 && !['bpk', 'ibu', 'pak', 'bu', 'mr', 'mrs', 'suami', 'istri'].includes(part));
+          return significantParts.length >= 2 && significantParts.every(part => ownerCellNormalized.includes(part));
         });
         const explicitOwner = /istri|ika/i.test(ownerCell) ? 'ISTRI' : /suami|leonardo/i.test(ownerCell) ? 'SUAMI' : matchedOwner?.role;
         const owner = explicitOwner || inferTransactionOwner(description, currentUser.role);
