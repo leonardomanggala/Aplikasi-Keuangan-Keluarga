@@ -168,6 +168,19 @@ export default function App() {
     setActiveTab('dashboard');
   };
 
+  const inferTransactionOwner = (description, fallbackRole) => {
+    const text = String(description || '');
+    const normalizedText = normalizeHeader(text);
+    const indicatesIncoming = /\b(dari|from)\b/i.test(text) && /transfer|setoran|kirim|incoming/i.test(text);
+    if (!indicatesIncoming) return fallbackRole;
+    const members = familyState?.members || [];
+    const matchedMember = members.find(member => {
+      const normalizedName = normalizeHeader(member.name || '');
+      return normalizedName.length >= 6 && normalizedText.includes(normalizedName) && ['SUAMI', 'ISTRI'].includes(member.role);
+    });
+    return matchedMember?.role || fallbackRole;
+  };
+
   const parsePdfTransactions = (pages) => {
     const monthMap = { jan:'01', feb:'02', mar:'03', apr:'04', mei:'05', may:'05', jun:'06', jul:'07', agu:'08', aug:'08', sep:'09', okt:'10', oct:'10', nov:'11', des:'12', dec:'12' };
     const datePattern = /\b\d{1,2}[/-]\d{1,2}[/-](?:\d{2}|\d{4})\b|\b\d{1,2}\s+(?:Jan|Feb|Mar|Apr|Mei|May|Jun|Jul|Agu|Aug|Sep|Okt|Oct|Nov|Des|Dec)\s+\d{4}\b/i;
@@ -252,7 +265,7 @@ export default function App() {
         if (!date || !Number.isFinite(amount) || !Number.isFinite(balance) || amount === 0) throw new Error(`Nominal atau saldo pada baris ${start.number} halaman ${page.pageNumber} tidak terbaca dari kolom tabel. Nilai yang tertangkap: nominal “${amountText || 'kosong'}”, saldo “${balanceText || 'kosong'}”.`);
         const lower = description.toLowerCase();
         const category = /pln|listrik|indihome|telkom|air|tagihan/.test(lower) ? 'Utilitas & Tagihan' : /transfer|ovo|gopay|dana|shopeepay/.test(lower) ? 'Transfer & E-Wallet' : /makan|resto|soto|kopi|qris|qr ke/.test(lower) ? 'Kuliner & Kopi' : 'Belanja Retail';
-        result.push({ ownerRole: currentUser?.role || 'SUAMI', date, description, amount, balance, category });
+        result.push({ ownerRole: inferTransactionOwner(description, currentUser?.role || 'SUAMI'), date, description, amount, balance, category });
       });
     }
     // Cross-check the extracted text against the running balance before allowing a save.
@@ -356,7 +369,14 @@ export default function App() {
         const explicitCategory = categoryIndex >= 0 ? row[categoryIndex]?.trim() : '';
         const text = (description || '').toLowerCase();
         const category = explicitCategory || (/pln|listrik|indihome|telkom|air|tagihan/.test(text) ? 'Utilitas & Tagihan' : /transfer|ovo|gopay|dana|shopeepay/.test(text) ? 'Transfer & E-Wallet' : /makan|resto|soto|kopi|qris|qr ke/.test(text) ? 'Kuliner & Kopi' : 'Belanja Retail');
-        const owner = ownerIndex >= 0 && /istri|ika/i.test(row[ownerIndex] || '') ? 'ISTRI' : ownerIndex >= 0 && /suami|leonardo/i.test(row[ownerIndex] || '') ? 'SUAMI' : currentUser.role;
+        const ownerCell = ownerIndex >= 0 ? String(row[ownerIndex] || '') : '';
+        const ownerCellNormalized = normalizeHeader(ownerCell);
+        const matchedOwner = (familyState?.members || []).find(member => {
+          const memberName = normalizeHeader(member.name || '');
+          return memberName.length >= 6 && ownerCellNormalized.includes(memberName);
+        });
+        const explicitOwner = /istri|ika/i.test(ownerCell) ? 'ISTRI' : /suami|leonardo/i.test(ownerCell) ? 'SUAMI' : matchedOwner?.role;
+        const owner = explicitOwner || inferTransactionOwner(description, currentUser.role);
         const balanceValue = balanceIndex >= 0 && row[balanceIndex] ? parseRupiah(row[balanceIndex]) : undefined;
         return { ownerRole: owner, date, description, amount, balance: Number.isFinite(balanceValue) ? balanceValue : undefined, category };
       }).filter(transaction => transaction.date && transaction.description && Number.isFinite(transaction.amount));
