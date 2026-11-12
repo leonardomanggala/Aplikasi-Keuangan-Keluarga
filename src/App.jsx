@@ -2,6 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useAuthActions } from '@convex-dev/auth/react';
 import { useConvexAuth, useMutation, useQuery } from 'convex/react';
 import { anyApi } from 'convex/server';
+import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { createWorker } from 'tesseract.js';
 import { 
   Wallet, ArrowDownLeft, ArrowUpRight, Zap, FileUp, Filter, Search, 
   Settings, LogOut, CheckCircle2, AlertCircle, RefreshCw, UserCheck, 
@@ -91,6 +93,7 @@ export default function App() {
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   const [uploadNotice, setUploadNotice] = useState(null);
+  const [pdfPreview, setPdfPreview] = useState(null);
 
   // Login Handler
   const handleRegister = async (event) => {
@@ -147,17 +150,92 @@ export default function App() {
     setActiveTab('dashboard');
   };
 
-  // Import CSV e-statements into the signed-in household.
+  const parsePdfTransactions = (text) => {
+    const datePattern = /\b\d{1,2}[/-]\d{1,2}[/-](?:\d{2}|\d{4})\b|\b\d{1,2}\s+(?:Jan|Feb|Mar|Apr|Mei|May|Jun|Jul|Agu|Aug|Sep|Okt|Oct|Nov|Des|Dec)\s+\d{4}\b/ig;
+    const moneyPattern = /\(?-?\d[\d.,]*\)?(?:\s*(?:DB|CR|DR|K|D))?/gi;
+    const monthMap = { jan:'01', feb:'02', mar:'03', apr:'04', mei:'05', may:'05', jun:'06', jul:'07', agu:'08', aug:'08', sep:'09', okt:'10', oct:'10', nov:'11', des:'12', dec:'12' };
+    const result = [];
+    for (const rawLine of text.split(/\r?\n/)) {
+      const dateMatch = rawLine.match(datePattern);
+      if (!dateMatch) continue;
+      let rawDate = dateMatch[0];
+      if (/\b[A-Za-z]{3}\b/.test(rawDate)) {
+        const parts = rawDate.match(/(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})/);
+        if (!parts) continue;
+        rawDate = `${parts[1]}/${monthMap[parts[2].toLowerCase()]}/${parts[3]}`;
+      }
+      const date = normalizeDate(rawDate);
+      let tail = rawLine.replace(datePattern, ' ').replace(/\s+/g, ' ').trim();
+      const values = [...tail.matchAll(moneyPattern)].map(match => ({ raw: match[0].trim(), index: match.index, digits: match[0].replace(/\D/g, '').length })).filter(item => item.digits >= 4);
+      if (!values.length) continue;
+      const first = values[0];
+      const description = tail.slice(0, first.index).replace(/[|:•-]+$/g, '').trim();
+      if (!description || /^(saldo|balance|total|mutasi|tanggal|date)\b/i.test(description)) continue;
+      const amount = parseRupiah(first.raw);
+      if (!Number.isFinite(amount) || amount === 0) continue;
+      const beforeAmount = tail.slice(0, first.index + first.raw.length + 4).toUpperCase();
+      const signedAmount = /\b(DB|DEBIT|DR)\b/.test(beforeAmount) ? -Math.abs(amount) : /\b(CR|CREDIT)\b/.test(beforeAmount) ? Math.abs(amount) : amount;
+      const lastValue = values.length > 1 ? parseRupiah(values[values.length - 1].raw) : undefined;
+      const lower = description.toLowerCase();
+      const category = /pln|listrik|indihome|telkom|air|tagihan/.test(lower) ? 'Utilitas & Tagihan' : /transfer|ovo|gopay|dana|shopeepay/.test(lower) ? 'Transfer & E-Wallet' : /makan|resto|soto|kopi|qris|qr ke/.test(lower) ? 'Kuliner & Kopi' : 'Belanja Retail';
+      result.push({ ownerRole: currentUser?.role || 'SUAMI', date, description, amount: signedAmount, balance: Number.isFinite(lastValue) ? lastValue : undefined, category });
+    }
+    return result;
+  };
+
+  const readPdfText = async (file) => {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const pdfDoc = await pdfjs.getDocument({ data: bytes }).promise;
+    const worker = await createWorker('ind+eng', 1);
+    let fullText = '';
+    try {
+      for (let pageNumber = 1; pageNumber <= pdfDoc.numPages; pageNumber++) {
+        setUploadNotice({ type: 'loading', msg: `Membaca halaman PDF ${pageNumber} dari ${pdfDoc.numPages} dengan OCR...` });
+        const page = await pdfDoc.getPage(pageNumber);
+        const textContent = await page.getTextContent();
+        let pageText = textContent.items.map(item => item.str).join(' ');
+        if (pageText.trim().length < 30) {
+          const viewport = page.getViewport({ scale: 2 });
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.ceil(viewport.width);
+          canvas.height = Math.ceil(viewport.height);
+          await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+          pageText = (await worker.recognize(canvas)).data.text;
+          canvas.width = 0;
+          canvas.height = 0;
+        }
+        fullText += `\n${pageText}`;
+      }
+    } finally { await worker.terminate(); }
+    return fullText;
+  };
+
+  const importTransactions = async (transactionsToImport) => {
+    const result = await addTransactions({ transactions: transactionsToImport });
+    setUploadNotice({ type: 'success', msg: `Impor selesai: ${result.added} transaksi ditambahkan, ${result.skipped} duplikat dilewati.` });
+    setPdfPreview(null);
+  };
+
+  // Import CSV or OCR-readable PDF e-statements into the signed-in household.
   const handleFileUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!file.name.toLowerCase().endsWith('.csv')) {
-      setUploadNotice({ type: 'error', msg: 'Untuk saat ini, impor online mendukung berkas CSV. Ekspor e-statement ke CSV lalu unggah kembali.' });
+    const extension = file.name.toLowerCase().split('.').pop();
+    if (!['csv', 'pdf'].includes(extension)) {
+      setUploadNotice({ type: 'error', msg: 'Pilih berkas CSV atau PDF.' });
       e.target.value = '';
       return;
     }
     setUploadNotice({ type: 'loading', msg: `Membaca e-statement: ${file.name}...` });
     try {
+      if (extension === 'pdf') {
+        const text = await readPdfText(file);
+        const parsed = parsePdfTransactions(text);
+        if (!parsed.length) throw new Error('OCR selesai, tetapi baris transaksi belum dikenali. PDF Anda tidak dikirim ke server; coba PDF yang lebih jelas atau gunakan CSV.');
+        setPdfPreview({ fileName: file.name, transactions: parsed });
+        setUploadNotice(null);
+        return;
+      }
       const rows = parseCsvRows(await file.text());
       if (rows.length < 2) throw new Error('Berkas CSV belum berisi baris transaksi.');
       const headers = rows[0].map(normalizeHeader);
@@ -181,10 +259,9 @@ export default function App() {
         return { ownerRole: owner, date, description, amount, balance: Number.isFinite(balanceValue) ? balanceValue : undefined, category };
       }).filter(transaction => transaction.date && transaction.description && Number.isFinite(transaction.amount));
       if (!parsed.length) throw new Error('Tidak ada transaksi valid. Periksa kolom tanggal, keterangan, dan nominal.');
-      const result = await addTransactions({ transactions: parsed });
-      setUploadNotice({ type: 'success', msg: `Impor selesai: ${result.added} transaksi ditambahkan, ${result.skipped} duplikat dilewati.` });
+      await importTransactions(parsed);
     } catch (error) {
-      setUploadNotice({ type: 'error', msg: error.message || 'Gagal membaca berkas CSV.' });
+      setUploadNotice({ type: 'error', msg: error.message || 'Gagal membaca berkas.' });
     } finally { e.target.value = ''; }
   };
 
@@ -433,6 +510,27 @@ export default function App() {
 
       {/* MAIN CONTAINER */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+
+        {pdfPreview && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4" role="dialog" aria-modal="true" aria-labelledby="pdf-preview-title">
+            <section className="flex max-h-[90vh] w-full max-w-3xl flex-col rounded-2xl bg-white shadow-xl">
+              <div className="border-b border-slate-200 p-5">
+                <h2 id="pdf-preview-title" className="text-lg font-bold text-slate-900">Periksa hasil baca PDF</h2>
+                <p className="mt-1 text-xs text-slate-500">{pdfPreview.transactions.length} transaksi terbaca dari {pdfPreview.fileName}. Pastikan tanggal, keterangan, dan tanda debit/kredit sudah benar sebelum disimpan.</p>
+              </div>
+              <div className="overflow-auto p-4">
+                <table className="w-full text-left text-xs">
+                  <thead className="sticky top-0 bg-slate-100 text-slate-600"><tr><th className="p-2">Tanggal</th><th className="p-2">Keterangan</th><th className="p-2 text-right">Mutasi</th><th className="p-2 text-right">Saldo</th></tr></thead>
+                  <tbody>{pdfPreview.transactions.map((transaction, index) => <tr key={`${transaction.date}-${index}`} className="border-b border-slate-100"><td className="whitespace-nowrap p-2">{transaction.date}</td><td className="min-w-48 p-2">{transaction.description}</td><td className={`whitespace-nowrap p-2 text-right font-semibold ${transaction.amount < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>{transaction.amount.toLocaleString('id-ID')}</td><td className="whitespace-nowrap p-2 text-right">{Number.isFinite(transaction.balance) ? transaction.balance.toLocaleString('id-ID') : '—'}</td></tr>)}</tbody>
+                </table>
+              </div>
+              <div className="flex justify-end gap-2 border-t border-slate-200 p-4">
+                <button type="button" onClick={() => setPdfPreview(null)} className="rounded-lg border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700">Batal</button>
+                <button type="button" onClick={() => importTransactions(pdfPreview.transactions).catch(error => setUploadNotice({ type: 'error', msg: error.message || 'Gagal menyimpan transaksi.' }))} className="rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white">Simpan transaksi</button>
+              </div>
+            </section>
+          </div>
+        )}
         
         {/* Upload Alert */}
         {uploadNotice && (
@@ -470,8 +568,8 @@ export default function App() {
 
                 <label className="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-3.5 py-2 rounded-lg transition inline-flex items-center space-x-2 shadow-sm">
                   <FileUp className="w-4 h-4" />
-                  <span>Upload CSV e-Statement</span>
-                  <input type="file" accept=".csv,text/csv" onChange={handleFileUpload} className="hidden" />
+                  <span>Upload CSV / PDF e-Statement</span>
+                  <input type="file" accept=".csv,text/csv,.pdf,application/pdf" onChange={handleFileUpload} className="hidden" />
                 </label>
               </div>
             </div>
