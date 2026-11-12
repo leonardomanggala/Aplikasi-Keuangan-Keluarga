@@ -179,7 +179,7 @@ export default function App() {
       }
       const date = normalizeDate(`${rawDate} ${rawTime}`);
       let tail = rawLine.replace(datePattern, ' ').replace(/\s+/g, ' ').trim();
-      // OCR often places transaction reference numbers inside the description.
+      // Bank statements often place reference numbers inside the description.
       // In Mandiri statements the last two grouped money values are nominal and balance.
       const values = [...tail.matchAll(moneyPattern)].map(match => ({ raw: match[0].trim(), index: match.index }));
       if (values.length < 2) continue;
@@ -195,22 +195,21 @@ export default function App() {
       const category = /pln|listrik|indihome|telkom|air|tagihan/.test(lower) ? 'Utilitas & Tagihan' : /transfer|ovo|gopay|dana|shopeepay/.test(lower) ? 'Transfer & E-Wallet' : /makan|resto|soto|kopi|qris|qr ke/.test(lower) ? 'Kuliner & Kopi' : 'Belanja Retail';
       result.push({ ownerRole: currentUser?.role || 'SUAMI', date, description, amount: signedAmount, balance: Number.isFinite(lastValue) ? lastValue : undefined, category });
     }
-    // Use the running balance to validate both the OCR-selected columns and debit/credit sign.
-    // If any row disagrees with its neighbor, stop rather than offering corrupted data to save.
+    // Cross-check the extracted text against the running balance before allowing a save.
     for (let index = 1; index < result.length; index++) {
       const previous = result[index - 1];
       const current = result[index];
       const delta = Math.round((current.balance - previous.balance) * 100) / 100;
       if (Math.abs(delta - current.amount) <= 0.02) current.amount = delta;
       else if (Math.abs(delta + current.amount) <= 0.02) current.amount = delta;
-      // On some scanned statements OCR pulls the previous row's balance into
-      // the nominal column. Correct only when that exact balance is selected;
+      // Some PDFs place the previous row's balance beside the next description.
+      // Correct only when that exact balance is selected;
       // the next row's balance then gives the transaction amount unambiguously.
       else if (Math.abs(Math.abs(current.amount) - previous.balance) <= 0.02) {
         current.amount = delta;
-        current.ocrBalanceCorrection = true;
+        current.textBalanceCorrection = true;
       }
-      else throw new Error(`Validasi saldo gagal pada transaksi ${index + 1} (${current.date}). Nominal terbaca ${current.amount.toLocaleString('id-ID')}, sedangkan perubahan saldo terbaca ${delta.toLocaleString('id-ID')}. OCR mungkin salah membaca nominal/saldo atau melewatkan baris. Impor dihentikan agar data keliru tidak tersimpan; coba PDF yang lebih jelas atau CSV mutasi.`);
+      else throw new Error(`Validasi saldo gagal pada transaksi ${index + 1} (${current.date}). Nominal dalam teks PDF terbaca ${current.amount.toLocaleString('id-ID')}, sedangkan perubahan saldonya ${delta.toLocaleString('id-ID')}. Susunan teks atau saldo pada baris ini tidak cocok, jadi impor dihentikan agar data keliru tidak tersimpan. Periksa PDF atau gunakan CSV mutasi.`);
     }
     return result;
   };
@@ -281,7 +280,7 @@ export default function App() {
     setPdfPreview(null);
   };
 
-  // Import CSV or OCR-readable PDF e-statements into the signed-in household.
+  // Import CSV or text-based PDF e-statements into the signed-in household.
   const handleFileUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -295,7 +294,7 @@ export default function App() {
     try {
       if (extension === 'pdf') {
         const text = await readPdfText(file);
-        if (text.replace(/\s/g, '').length < 80) throw new Error('PDF ini tidak memiliki lapisan teks yang dapat dibaca. Tidak ada OCR yang dijalankan. Gunakan PDF asli yang teksnya dapat dipilih/disalin atau CSV mutasi.');
+        if (text.replace(/\s/g, '').length < 80) throw new Error('PDF ini tidak memiliki teks digital yang dapat dibaca. Gunakan PDF asli yang teksnya dapat dipilih/disalin atau CSV mutasi.');
         const parsed = parsePdfTransactions(text);
         if (!parsed.length) throw new Error('Teks PDF berhasil dibaca, tetapi susunan transaksi belum dikenali. Coba PDF mutasi lain atau CSV.');
         setPdfPreview({ fileName: file.name, transactions: parsed });
@@ -599,7 +598,7 @@ export default function App() {
             <section className="flex max-h-[90vh] w-full max-w-3xl flex-col rounded-2xl bg-white shadow-xl">
               <div className="border-b border-slate-200 p-5">
                 <h2 id="pdf-preview-title" className="text-lg font-bold text-slate-900">Periksa hasil baca PDF</h2>
-                <p className="mt-1 text-xs text-slate-500">{pdfPreview.transactions.length} transaksi terbaca dari {pdfPreview.fileName}. Pastikan tanggal, keterangan, dan tanda debit/kredit sudah benar sebelum disimpan.{pdfPreview.transactions.some(transaction => transaction.ocrBalanceCorrection) && <span className="mt-1 block font-medium text-amber-700">Beberapa nominal dikoreksi memakai selisih saldo karena OCR membaca saldo baris sebelumnya.</span>}</p>
+                <p className="mt-1 text-xs text-slate-500">{pdfPreview.transactions.length} transaksi terbaca dari {pdfPreview.fileName}. Pastikan tanggal, keterangan, dan tanda debit/kredit sudah benar sebelum disimpan.{pdfPreview.transactions.some(transaction => transaction.textBalanceCorrection) && <span className="mt-1 block font-medium text-amber-700">Beberapa nominal disesuaikan memakai selisih saldo karena PDF menempatkan saldo sebelumnya dekat dengan transaksi berikutnya.</span>}</p>
               </div>
               <div className="overflow-auto p-4">
                 <table className="w-full text-left text-xs">
