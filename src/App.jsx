@@ -409,6 +409,7 @@ export default function App() {
       return matchOwner && matchCat && matchSearch;
     });
   }, [transactions, selectedOwnerFilter, selectedCategoryFilter, searchQuery]);
+  const chronologicalData = useMemo(() => [...filteredData].sort((a, b) => a.date.localeCompare(b.date)), [filteredData]);
 
   // Summary Metrics
   const summary = useMemo(() => {
@@ -929,7 +930,7 @@ export default function App() {
                   </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-100">
-                  {filteredData.map(t => (
+                  {chronologicalData.map(t => (
                     <tr key={t.id} className="hover:bg-slate-50 transition">
                       <td className="py-3 px-3 text-slate-400 font-mono text-[11px] whitespace-nowrap">{t.date}</td>
                       <td className="py-3 px-3">
