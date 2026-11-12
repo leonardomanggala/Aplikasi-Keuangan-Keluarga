@@ -102,6 +102,9 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [uploadNotice, setUploadNotice] = useState(null);
   const [pdfPreview, setPdfPreview] = useState(null);
+  const [pdfPasswordPrompt, setPdfPasswordPrompt] = useState(null);
+  const [pdfPasswordInput, setPdfPasswordInput] = useState('');
+  const pdfPasswordCancelled = React.useRef(false);
 
   // Login Handler
   const handleRegister = async (event) => {
@@ -207,7 +210,26 @@ export default function App() {
 
   const readPdfText = async (file) => {
     const bytes = new Uint8Array(await file.arrayBuffer());
-    const pdfDoc = await pdfjs.getDocument({ data: bytes }).promise;
+    pdfPasswordCancelled.current = false;
+    const loadingTask = pdfjs.getDocument({ data: bytes });
+    loadingTask.onPassword = (updatePassword, reason) => {
+      setPdfPasswordInput('');
+      setPdfPasswordPrompt({
+        error: reason === pdfjs.PasswordResponses.INCORRECT_PASSWORD,
+        submit: (password) => {
+          setPdfPasswordPrompt(null);
+          setPdfPasswordInput('');
+          updatePassword(password);
+        },
+        cancel: () => {
+          pdfPasswordCancelled.current = true;
+          setPdfPasswordPrompt(null);
+          setPdfPasswordInput('');
+          loadingTask.destroy();
+        },
+      });
+    };
+    const pdfDoc = await loadingTask.promise;
     const worker = await createWorker('ind+eng', 1);
     let fullText = '';
     try {
@@ -283,7 +305,7 @@ export default function App() {
       if (!parsed.length) throw new Error('Tidak ada transaksi valid. Periksa kolom tanggal, keterangan, dan nominal.');
       await importTransactions(parsed);
     } catch (error) {
-      setUploadNotice({ type: 'error', msg: error.message || 'Gagal membaca berkas.' });
+      if (!pdfPasswordCancelled.current) setUploadNotice({ type: 'error', msg: error.message || 'Gagal membaca berkas.' });
     } finally { e.target.value = ''; }
   };
 
@@ -532,6 +554,23 @@ export default function App() {
 
       {/* MAIN CONTAINER */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+
+        {pdfPasswordPrompt && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/50 p-4" role="dialog" aria-modal="true" aria-labelledby="pdf-password-title">
+            <form onSubmit={(event) => { event.preventDefault(); if (pdfPasswordInput) pdfPasswordPrompt.submit(pdfPasswordInput); }} className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+              <h2 id="pdf-password-title" className="text-lg font-bold text-slate-900">PDF ini dikunci kata sandi</h2>
+              <p className="mt-2 text-sm text-slate-600">Masukkan kata sandi PDF untuk membukanya dan melanjutkan pembacaan.</p>
+              {pdfPasswordPrompt.error && <p role="alert" className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700">Kata sandi salah. Silakan coba lagi.</p>}
+              <label className="mt-4 block text-xs font-semibold text-slate-700" htmlFor="pdf-password-input">Kata sandi PDF</label>
+              <input id="pdf-password-input" type="password" autoComplete="off" autoFocus value={pdfPasswordInput} onChange={event => setPdfPasswordInput(event.target.value)} className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10" />
+              <p className="mt-2 text-[11px] text-slate-500">Kata sandi hanya digunakan di browser untuk membuka berkas.</p>
+              <div className="mt-5 flex justify-end gap-2">
+                <button type="button" onClick={pdfPasswordPrompt.cancel} className="rounded-lg border border-slate-200 px-4 py-2.5 text-xs font-semibold text-slate-700">Batal</button>
+                <button type="submit" disabled={!pdfPasswordInput} className="rounded-lg bg-blue-600 px-4 py-2.5 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">Buka PDF</button>
+              </div>
+            </form>
+          </div>
+        )}
 
         {pdfPreview && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4" role="dialog" aria-modal="true" aria-labelledby="pdf-preview-title">
