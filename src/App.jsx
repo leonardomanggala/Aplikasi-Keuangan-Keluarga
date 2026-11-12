@@ -223,12 +223,20 @@ export default function App() {
         const top = (priorY + start.line.y) / 2;
         const bottom = (start.line.y + nextY) / 2;
         const rowItems = page.items.filter(item => item.y <= top && item.y > bottom);
-        const inColumn = (item, left, right) => item.x >= left - 2 && (right === Infinity || item.x < right - 2);
-        const textIn = (left, right) => rowItems.filter(item => inColumn(item, left, right)).sort((a, b) => b.y - a.y || a.x - b.x).map(item => item.str.trim()).filter(Boolean).join(' ');
-        const dateCell = textIn(columns.date, columns.description);
-        const description = textIn(columns.description, columns.amount).replace(/\s+/g, ' ').trim();
-        const amountText = textIn(columns.amount, columns.balance);
-        const balanceText = textIn(columns.balance, Infinity);
+        // Header labels are often centered while transaction amounts are right-aligned.
+        // Use generous left padding for numeric columns so their first digit stays in-cell.
+        const cellBounds = {
+          date: [columns.date - 8, columns.description - 8],
+          description: [columns.description - 8, columns.amount - 34],
+          amount: [columns.amount - 34, columns.balance - 42],
+          balance: [columns.balance - 42, Infinity],
+        };
+        const inColumn = (item, bounds) => item.x >= bounds[0] && (bounds[1] === Infinity || item.x < bounds[1]);
+        const textIn = (bounds) => rowItems.filter(item => inColumn(item, bounds)).sort((a, b) => b.y - a.y || a.x - b.x).map(item => item.str.trim()).filter(Boolean).join(' ');
+        const dateCell = textIn(cellBounds.date);
+        const description = textIn(cellBounds.description).replace(/\s+/g, ' ').trim();
+        const amountText = textIn(cellBounds.amount);
+        const balanceText = textIn(cellBounds.balance);
         let rawDate = dateCell.match(datePattern)?.[0];
         if (!rawDate) throw new Error(`Tanggal pada baris ${start.number} halaman ${page.pageNumber} tidak terbaca dari kolom Tanggal.`);
         if (!description) throw new Error(`Keterangan pada baris ${start.number} halaman ${page.pageNumber} tidak terbaca dari kolom Keterangan.`);
@@ -241,7 +249,7 @@ export default function App() {
         const date = normalizeDate(`${rawDate} ${time}`);
         const amount = parseRupiah(amountText);
         const balance = parseRupiah(balanceText);
-        if (!date || !Number.isFinite(amount) || !Number.isFinite(balance) || amount === 0) throw new Error(`Nominal atau saldo pada baris ${start.number} halaman ${page.pageNumber} tidak terbaca dari kolom tabel.`);
+        if (!date || !Number.isFinite(amount) || !Number.isFinite(balance) || amount === 0) throw new Error(`Nominal atau saldo pada baris ${start.number} halaman ${page.pageNumber} tidak terbaca dari kolom tabel. Nilai yang tertangkap: nominal “${amountText || 'kosong'}”, saldo “${balanceText || 'kosong'}”.`);
         const lower = description.toLowerCase();
         const category = /pln|listrik|indihome|telkom|air|tagihan/.test(lower) ? 'Utilitas & Tagihan' : /transfer|ovo|gopay|dana|shopeepay/.test(lower) ? 'Transfer & E-Wallet' : /makan|resto|soto|kopi|qris|qr ke/.test(lower) ? 'Kuliner & Kopi' : 'Belanja Retail';
         result.push({ ownerRole: currentUser?.role || 'SUAMI', date, description, amount, balance, category });
