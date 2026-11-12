@@ -260,7 +260,17 @@ export default function App() {
           return `${text}${gap > 2 ? ' ' : ''}${part.text}`;
         }, '');
       });
-      fullText += `\n${pageLines.join('\n')}`;
+      // Keep wrapped descriptions and amounts with their transaction date. Text
+      // PDFs often store each visual baseline separately even within one row.
+      const transactionBlocks = [];
+      for (const line of pageLines) {
+        if (/\b\d{1,2}[/-]\d{1,2}[/-](?:\d{2}|\d{4})\b|\b\d{1,2}\s+(?:Jan|Feb|Mar|Apr|Mei|May|Jun|Jul|Agu|Aug|Sep|Okt|Oct|Nov|Des|Dec)\s+\d{4}\b/i.test(line)) {
+          transactionBlocks.push(line);
+        } else if (transactionBlocks.length) {
+          transactionBlocks[transactionBlocks.length - 1] += ` ${line}`;
+        }
+      }
+      fullText += `\n${transactionBlocks.join('\n')}`;
     }
     return fullText;
   };
