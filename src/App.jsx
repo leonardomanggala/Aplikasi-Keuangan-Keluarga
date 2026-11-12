@@ -37,10 +37,15 @@ function parseCsvRows(text) {
 
 const normalizeHeader = (value) => value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z]/g, '');
 const parseRupiah = (value) => {
-  const cleaned = String(value || '').trim();
+  const cleaned = String(value || '').trim().replace(/\s/g, '');
   const negative = /^-/.test(cleaned) || /\bDB\b/i.test(cleaned) || /^\(.*\)$/.test(cleaned);
-  const amount = Number(cleaned.replace(/[^\d]/g, ''));
-  return Number.isFinite(amount) ? (negative ? -amount : amount) : NaN;
+  const number = cleaned.replace(/[^\d.,]/g, '');
+  let normalized = number;
+  if (number.includes(',')) normalized = number.replace(/\./g, '').replace(',', '.');
+  else if ((number.match(/\./g) || []).length > 1) normalized = number.replace(/\./g, '');
+  else if (/\.\d{3}$/.test(number)) normalized = number.replace('.', '');
+  const amount = Number(normalized);
+  return Number.isFinite(amount) ? Math.round((negative ? -amount : amount) * 100) / 100 : NaN;
 };
 const normalizeDate = (value) => {
   const text = String(value || '').trim();
@@ -155,7 +160,9 @@ export default function App() {
 
   const parsePdfTransactions = (text) => {
     const datePattern = /\b\d{1,2}[/-]\d{1,2}[/-](?:\d{2}|\d{4})\b|\b\d{1,2}\s+(?:Jan|Feb|Mar|Apr|Mei|May|Jun|Jul|Agu|Aug|Sep|Okt|Oct|Nov|Des|Dec)\s+\d{4}\b/ig;
-    const moneyPattern = /\(?-?\d[\d.,]*\)?(?:\s*(?:DB|CR|DR|K|D))?/gi;
+    // Statement amounts use grouped thousands (e.g. -500.000,00). Excluding
+    // ungrouped digit strings prevents account/reference numbers being read as money.
+    const moneyPattern = /[+-]?\(?\d{1,3}(?:[.,]\d{3})+(?:[.,]\d{2})?\)?(?:\s*(?:DB|CR|DR))?/gi;
     const monthMap = { jan:'01', feb:'02', mar:'03', apr:'04', mei:'05', may:'05', jun:'06', jul:'07', agu:'08', aug:'08', sep:'09', okt:'10', oct:'10', nov:'11', des:'12', dec:'12' };
     const result = [];
     for (const rawLine of text.split(/\r?\n/)) {
@@ -169,19 +176,31 @@ export default function App() {
       }
       const date = normalizeDate(rawDate);
       let tail = rawLine.replace(datePattern, ' ').replace(/\s+/g, ' ').trim();
-      const values = [...tail.matchAll(moneyPattern)].map(match => ({ raw: match[0].trim(), index: match.index, digits: match[0].replace(/\D/g, '').length })).filter(item => item.digits >= 4);
-      if (!values.length) continue;
-      const first = values[0];
-      const description = tail.slice(0, first.index).replace(/[|:•-]+$/g, '').trim();
+      // OCR often places transaction reference numbers inside the description.
+      // In Mandiri statements the last two grouped money values are nominal and balance.
+      const values = [...tail.matchAll(moneyPattern)].map(match => ({ raw: match[0].trim(), index: match.index }));
+      if (values.length < 2) continue;
+      const amountToken = values[values.length - 2];
+      const balanceToken = values[values.length - 1];
+      const description = tail.slice(0, amountToken.index).replace(/[|:•-]+$/g, '').trim();
       if (!description || /^(saldo|balance|total|mutasi|tanggal|date)\b/i.test(description)) continue;
-      const amount = parseRupiah(first.raw);
+      const amount = parseRupiah(amountToken.raw);
       if (!Number.isFinite(amount) || amount === 0) continue;
-      const beforeAmount = tail.slice(0, first.index + first.raw.length + 4).toUpperCase();
-      const signedAmount = /\b(DB|DEBIT|DR)\b/.test(beforeAmount) ? -Math.abs(amount) : /\b(CR|CREDIT)\b/.test(beforeAmount) ? Math.abs(amount) : amount;
-      const lastValue = values.length > 1 ? parseRupiah(values[values.length - 1].raw) : undefined;
+      const signedAmount = amount;
+      const lastValue = parseRupiah(balanceToken.raw);
       const lower = description.toLowerCase();
       const category = /pln|listrik|indihome|telkom|air|tagihan/.test(lower) ? 'Utilitas & Tagihan' : /transfer|ovo|gopay|dana|shopeepay/.test(lower) ? 'Transfer & E-Wallet' : /makan|resto|soto|kopi|qris|qr ke/.test(lower) ? 'Kuliner & Kopi' : 'Belanja Retail';
       result.push({ ownerRole: currentUser?.role || 'SUAMI', date, description, amount: signedAmount, balance: Number.isFinite(lastValue) ? lastValue : undefined, category });
+    }
+    // Use the running balance to validate both the OCR-selected columns and debit/credit sign.
+    // If any row disagrees with its neighbor, stop rather than offering corrupted data to save.
+    for (let index = 1; index < result.length; index++) {
+      const previous = result[index - 1];
+      const current = result[index];
+      const delta = Math.round((current.balance - previous.balance) * 100) / 100;
+      if (Math.abs(delta - current.amount) <= 0.02) current.amount = delta;
+      else if (Math.abs(delta + current.amount) <= 0.02) current.amount = delta;
+      else throw new Error(`Validasi saldo gagal pada transaksi ${index + 1} (${current.date}). Hasil OCR belum aman disimpan. Gunakan PDF asli yang teksnya dapat disalin atau CSV mutasi.`);
     }
     return result;
   };
