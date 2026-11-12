@@ -109,7 +109,6 @@ export default function App() {
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   const [uploadNotice, setUploadNotice] = useState(null);
-  const [uploadAccountOwner, setUploadAccountOwner] = useState('');
   const [pdfPreview, setPdfPreview] = useState(null);
   const [pdfPasswordPrompt, setPdfPasswordPrompt] = useState(null);
   const [pdfPasswordInput, setPdfPasswordInput] = useState('');
@@ -174,12 +173,19 @@ export default function App() {
   const matchHouseholdMemberRole = (sourceText) => {
     const normalizedText = normalizeHeader(String(sourceText || ''));
     const members = familyState?.members || [];
-    const matchedMember = members.map(member => {
+    const candidates = members.map(member => {
       const nameParts = String(member.name || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().match(/[a-z]+/g) || [];
       const significantParts = nameParts.filter(part => part.length > 1 && !['bpk', 'ibu', 'pak', 'bu', 'mr', 'mrs', 'suami', 'istri'].includes(part));
-      return { member, significantParts };
-    }).filter(candidate => candidate.significantParts.length >= 2 && candidate.significantParts.every(part => normalizedText.includes(part)) && ['SUAMI', 'ISTRI'].includes(candidate.member.role)).sort((a, b) => b.significantParts.length - a.significantParts.length)[0]?.member;
-    return matchedMember?.role || null;
+      const matchedParts = significantParts.filter(part => normalizedText.includes(part)).length;
+      return { member, significantParts, matchedParts, ratio: significantParts.length ? matchedParts / significantParts.length : 0 };
+    }).filter(candidate => ['SUAMI', 'ISTRI'].includes(candidate.member.role)
+      && candidate.significantParts.length >= 2
+      && candidate.matchedParts >= 2
+      && candidate.ratio >= 0.5)
+      .sort((a, b) => b.ratio - a.ratio || b.matchedParts - a.matchedParts);
+    if (!candidates.length) return null;
+    if (candidates[1] && candidates[0].ratio === candidates[1].ratio && candidates[0].matchedParts === candidates[1].matchedParts) return null;
+    return candidates[0].member.role;
   };
 
   const parsePdfTransactions = (pages) => {
@@ -210,7 +216,7 @@ export default function App() {
       }
       if (!columns) continue;
       const statementHeaderText = page.items.filter(item => item.y > columns.headerY + 2).map(item => item.str).join(' ');
-      statementOwnerRole = matchHouseholdMemberRole(statementHeaderText) || statementOwnerRole || uploadAccountOwner || null;
+      statementOwnerRole = matchHouseholdMemberRole(statementHeaderText) || statementOwnerRole;
 
       const lines = [];
       for (const item of page.items) {
@@ -269,7 +275,7 @@ export default function App() {
         if (!date || !Number.isFinite(amount) || !Number.isFinite(balance) || amount === 0) throw new Error(`Nominal atau saldo pada baris ${start.number} halaman ${page.pageNumber} tidak terbaca dari kolom tabel. Nilai yang tertangkap: nominal “${amountText || 'kosong'}”, saldo “${balanceText || 'kosong'}”.`);
         const lower = description.toLowerCase();
         const category = /pln|listrik|indihome|telkom|air|tagihan/.test(lower) ? 'Utilitas & Tagihan' : /transfer|ovo|gopay|dana|shopeepay/.test(lower) ? 'Transfer & E-Wallet' : /makan|resto|soto|kopi|qris|qr ke/.test(lower) ? 'Kuliner & Kopi' : 'Belanja Retail';
-        if (!statementOwnerRole) throw new Error('Pemilik rekening pada PDF tidak dikenali. Pilih nama pemilik rekening sebelum mengunggah ulang.');
+        if (!statementOwnerRole) throw new Error('Nama pemilik rekening tidak ditemukan pada e-Statement. Pastikan PDF memuat nama pemilik rekening yang terdaftar pada profil keluarga.');
         result.push({ ownerRole: statementOwnerRole, date, description, amount, balance, category });
       });
     }
@@ -332,7 +338,6 @@ export default function App() {
   const importTransactions = async (transactionsToImport) => {
     const result = await addTransactions({ transactions: transactionsToImport });
     setUploadNotice({ type: 'success', msg: `Impor selesai: ${result.added} transaksi ditambahkan, ${result.corrected || 0} label pemilik diperbaiki, ${result.skipped} duplikat dilewati.` });
-    setUploadAccountOwner('');
     setPdfPreview(null);
   };
 
@@ -393,8 +398,8 @@ export default function App() {
           return significantParts.length >= 2 && significantParts.every(part => ownerCellNormalized.includes(part));
         });
         const explicitOwner = /istri|ika/i.test(ownerCell) ? 'ISTRI' : /suami|leonardo/i.test(ownerCell) ? 'SUAMI' : matchedOwner?.role;
-        const owner = explicitOwner || uploadAccountOwner;
-        if (!owner) throw new Error('Tentukan rekening ini atas nama Suami atau Istri, atau isi kolom Pemilik pada CSV.');
+        const owner = explicitOwner;
+        if (!owner) throw new Error('CSV harus memiliki kolom Pemilik berisi Suami atau Istri agar label mengikuti rekening sumber.');
         const balanceValue = balanceIndex >= 0 && row[balanceIndex] ? parseRupiah(row[balanceIndex]) : undefined;
         return { ownerRole: owner, date, description, amount, balance: Number.isFinite(balanceValue) ? balanceValue : undefined, category };
       }).filter(transaction => transaction.date && transaction.description && Number.isFinite(transaction.amount));
@@ -738,11 +743,6 @@ export default function App() {
                   <option value="ISTRI">👩‍💼 Istri (Ika Puspita)</option>
                 </select>
 
-                <select aria-label="Pemilik rekening e-Statement" value={uploadAccountOwner} onChange={(e) => setUploadAccountOwner(e.target.value)} className="min-w-36 text-xs border border-slate-200 rounded-lg px-3 py-2 bg-white font-semibold outline-none focus:ring-2 focus:ring-blue-500">
-                  <option value="">Rekening atas nama…</option>
-                  <option value="SUAMI">👨‍💼 Rekening Suami</option>
-                  <option value="ISTRI">👩‍💼 Rekening Istri</option>
-                </select>
                 <label className="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-3.5 py-2 rounded-lg transition inline-flex items-center space-x-2 shadow-sm">
                   <FileUp className="w-4 h-4" />
                   <span>Upload CSV / PDF e-Statement</span>
