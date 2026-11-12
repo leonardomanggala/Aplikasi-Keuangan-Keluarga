@@ -206,9 +206,15 @@ export default function App() {
         const marker = line.items.find(item => item.x >= columns.number - 3 && item.x < columns.date - 6 && /^\d{1,3}$/.test(item.str.trim()));
         return marker && line.y < columns.headerY - 4 ? { line, index, number: Number(marker.str) } : null;
       }).filter(Boolean);
+      for (let index = 1; index < numberStarts.length; index++) {
+        const expected = numberStarts[index - 1].number + 1;
+        if (numberStarts[index].number !== expected) {
+          throw new Error(`Nomor baris ${expected} pada tabel PDF tidak terbaca di halaman ${page.pageNumber}. Pastikan teks pada seluruh baris transaksi dapat disalin, lalu unggah ulang.`);
+        }
+      }
       const starts = numberStarts.length ? numberStarts : lines.map((line, index) => {
         const dateText = line.items.filter(item => item.x >= columns.date - 4 && item.x < columns.description - 2).sort((a, b) => a.x - b.x).map(item => item.str).join(' ');
-        return datePattern.test(dateText) ? { line, index } : null;
+        return datePattern.test(dateText) ? { line, index, number: index + 1 } : null;
       }).filter(Boolean);
 
       starts.forEach((start, rowIndex) => {
@@ -221,10 +227,16 @@ export default function App() {
         const textIn = (left, right) => rowItems.filter(item => inColumn(item, left, right)).sort((a, b) => b.y - a.y || a.x - b.x).map(item => item.str.trim()).filter(Boolean).join(' ');
         const dateCell = textIn(columns.date, columns.description);
         const description = textIn(columns.description, columns.amount).replace(/\s+/g, ' ').trim();
-        const amountText = textIn(columns.amount, columns.balance);
-        const balanceText = textIn(columns.balance, Infinity);
+        const nearestCellText = (left, right) => lines
+          .filter(line => line.y <= top && line.y > bottom)
+          .map(line => ({ line, text: line.items.filter(item => inColumn(item, left, right)).sort((a, b) => a.x - b.x).map(item => item.str.trim()).filter(Boolean).join(' ') }))
+          .filter(cell => /\d/.test(cell.text))
+          .sort((a, b) => Math.abs(a.line.y - start.line.y) - Math.abs(b.line.y - start.line.y))[0]?.text || '';
+        const amountText = nearestCellText(columns.amount, columns.balance);
+        const balanceText = nearestCellText(columns.balance, Infinity);
         let rawDate = dateCell.match(datePattern)?.[0];
-        if (!rawDate || !description) return;
+        if (!rawDate) throw new Error(`Tanggal pada baris ${start.number} halaman ${page.pageNumber} tidak terbaca dari kolom Tanggal.`);
+        if (!description) throw new Error(`Keterangan pada baris ${start.number} halaman ${page.pageNumber} tidak terbaca dari kolom Keterangan.`);
         if (/\b[A-Za-z]{3}\b/.test(rawDate)) {
           const parts = rawDate.match(/(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})/);
           if (!parts) return;
@@ -234,7 +246,7 @@ export default function App() {
         const date = normalizeDate(`${rawDate} ${time}`);
         const amount = parseRupiah(amountText);
         const balance = parseRupiah(balanceText);
-        if (!date || !Number.isFinite(amount) || !Number.isFinite(balance) || amount === 0) return;
+        if (!date || !Number.isFinite(amount) || !Number.isFinite(balance) || amount === 0) throw new Error(`Nominal atau saldo pada baris ${start.number} halaman ${page.pageNumber} tidak terbaca dari kolom tabel.`);
         const lower = description.toLowerCase();
         const category = /pln|listrik|indihome|telkom|air|tagihan/.test(lower) ? 'Utilitas & Tagihan' : /transfer|ovo|gopay|dana|shopeepay/.test(lower) ? 'Transfer & E-Wallet' : /makan|resto|soto|kopi|qris|qr ke/.test(lower) ? 'Kuliner & Kopi' : 'Belanja Retail';
         result.push({ ownerRole: currentUser?.role || 'SUAMI', date, description, amount, balance, category });
