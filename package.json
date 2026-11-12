@@ -14,8 +14,10 @@
     "@convex-dev/auth": "^0.0.98",
     "convex": "^1.49.0",
     "lucide-react": "^0.263.1",
+    "pdfjs-dist": "^4.10.38",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^18.2.0",
+    "tesseract.js": "^6.0.1"
   },
   "devDependencies": {
     "@types/react": "^18.2.15",
