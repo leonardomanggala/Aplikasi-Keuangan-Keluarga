@@ -175,6 +175,7 @@ export default function App() {
     for (const page of pages) {
       const headers = page.items.map(item => ({ ...item, label: normalizeHeader(item.str) }));
       const candidates = {
+        number: headers.filter(item => item.label === 'no' || item.label === 'nomor'),
         date: headers.filter(item => /tanggal|date/.test(item.label)),
         description: headers.filter(item => /keterangan|remarks|description/.test(item.label)),
         amount: headers.filter(item => /nominal|amount/.test(item.label)),
@@ -184,11 +185,12 @@ export default function App() {
       let bestSpread = Infinity;
       for (const date of candidates.date) for (const description of candidates.description) for (const amount of candidates.amount) for (const balance of candidates.balance) {
         if (!(date.x < description.x && description.x < amount.x && amount.x < balance.x)) continue;
-        const ys = [date.y, description.y, amount.y, balance.y];
+        const number = candidates.number.find(item => item.x < date.x && Math.abs(item.y - date.y) <= 24);
+        const ys = [date.y, description.y, amount.y, balance.y, ...(number ? [number.y] : [])];
         const spread = Math.max(...ys) - Math.min(...ys);
         if (spread < bestSpread && spread <= 24) {
           bestSpread = spread;
-          columns = { date: date.x, description: description.x, amount: amount.x, balance: balance.x };
+          columns = { number: number?.x ?? date.x - 24, date: date.x, description: description.x, amount: amount.x, balance: balance.x, headerY: Math.max(...ys) };
         }
       }
       if (!columns) continue;
@@ -200,14 +202,18 @@ export default function App() {
         line.items.push(item);
       }
       lines.sort((a, b) => b.y - a.y);
-      const starts = lines.map((line, index) => {
+      const numberStarts = lines.map((line, index) => {
+        const marker = line.items.find(item => item.x >= columns.number - 3 && item.x < columns.date - 6 && /^\d{1,3}$/.test(item.str.trim()));
+        return marker && line.y < columns.headerY - 4 ? { line, index, number: Number(marker.str) } : null;
+      }).filter(Boolean);
+      const starts = numberStarts.length ? numberStarts : lines.map((line, index) => {
         const dateText = line.items.filter(item => item.x >= columns.date - 4 && item.x < columns.description - 2).sort((a, b) => a.x - b.x).map(item => item.str).join(' ');
-        return datePattern.test(dateText) ? { line, index, dateText } : null;
+        return datePattern.test(dateText) ? { line, index } : null;
       }).filter(Boolean);
 
       starts.forEach((start, rowIndex) => {
-        const priorY = rowIndex > 0 ? starts[rowIndex - 1].line.y : start.line.y + 10;
-        const nextY = starts[rowIndex + 1]?.line.y ?? start.line.y - 24;
+        const priorY = rowIndex > 0 ? starts[rowIndex - 1].line.y : start.line.y + 12;
+        const nextY = starts[rowIndex + 1]?.line.y ?? start.line.y - 60;
         const top = (priorY + start.line.y) / 2;
         const bottom = (start.line.y + nextY) / 2;
         const rowItems = page.items.filter(item => item.y <= top && item.y > bottom);
