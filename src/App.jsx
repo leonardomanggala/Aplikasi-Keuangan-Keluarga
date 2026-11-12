@@ -81,6 +81,7 @@ export default function App() {
   const updateProfileName = useMutation(api.households.updateProfileName);
   const updateChartPreference = useMutation(api.households.updateChartRange);
   const addTransactions = useMutation(api.transactions.addMany);
+  const correctIncomingTransferOwners = useMutation(api.transactions.correctIncomingTransferOwners);
   const currentUser = familyState?.user ? {
     id: familyState.user._id,
     name: familyState.user.name || '',
@@ -112,6 +113,15 @@ export default function App() {
   const [pdfPasswordPrompt, setPdfPasswordPrompt] = useState(null);
   const [pdfPasswordInput, setPdfPasswordInput] = useState('');
   const pdfPasswordCancelled = React.useRef(false);
+  const ownerCorrectionStarted = React.useRef(false);
+
+  useEffect(() => {
+    if (!isAuthenticated || !familyState?.household || ownerCorrectionStarted.current) return;
+    ownerCorrectionStarted.current = true;
+    correctIncomingTransferOwners({}).then(result => {
+      if (result.corrected) setUploadNotice({ type: 'success', msg: `${result.corrected} label transfer masuk diperbaiki berdasarkan nama pengirim.` });
+    }).catch(() => { ownerCorrectionStarted.current = false; });
+  }, [isAuthenticated, familyState?.household?._id, correctIncomingTransferOwners]);
 
   // Login Handler
   const handleRegister = async (event) => {
