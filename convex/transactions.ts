@@ -83,3 +83,15 @@ export const correctIncomingTransferOwners = mutation({
   },
 });
 
+export const clearHouseholdTransactions = mutation({
+  args: { confirmation: v.literal("DELETE_TRANSACTIONS") },
+  handler: async (ctx) => {
+    const user = await currentUser(ctx);
+    const transactions = await ctx.db.query("transactions").withIndex("by_household_date", (q: any) => q.eq("householdId", user.householdId)).collect();
+    for (const transaction of transactions) await ctx.db.delete(transaction._id);
+    const household = await ctx.db.get(user.householdId!);
+    if (household) await ctx.db.patch(household._id, { legacyData: { opening: 0 } });
+    return { deleted: transactions.length };
+  },
+});
+
