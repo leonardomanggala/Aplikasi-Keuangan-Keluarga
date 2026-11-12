@@ -33,14 +33,23 @@ export const addMany = mutation({
     const user = await currentUser(ctx);
     let added = 0;
     let skipped = 0;
+    let corrected = 0;
     for (const transaction of args.transactions) {
       const fingerprint = `${transaction.date}_${transaction.amount}_${transaction.description.trim().toLowerCase()}`;
       const duplicate = await ctx.db.query("transactions").withIndex("by_household_fingerprint", (q: any) => q.eq("householdId", user.householdId).eq("fingerprint", fingerprint)).first();
-      if (duplicate) { skipped++; continue; }
+      if (duplicate) {
+        const incomingTransfer = /\b(dari|from)\b/i.test(transaction.description) && /transfer|setoran|kirim|incoming/i.test(transaction.description);
+        if (incomingTransfer && duplicate.ownerRole !== transaction.ownerRole) {
+          await ctx.db.patch(duplicate._id, { ownerRole: transaction.ownerRole });
+          corrected++;
+        }
+        skipped++;
+        continue;
+      }
       await ctx.db.insert("transactions", { ...transaction, householdId: user.householdId!, ownerUserId: user._id, fingerprint, createdAt: Date.now() });
       added++;
     }
-    return { added, skipped };
+    return { added, skipped, corrected };
   },
 });
 
