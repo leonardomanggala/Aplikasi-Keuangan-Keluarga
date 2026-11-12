@@ -4,7 +4,6 @@ import { useConvexAuth, useMutation, useQuery } from 'convex/react';
 import { anyApi } from 'convex/server';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import pdfWorkerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url';
-import { createWorker } from 'tesseract.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 import { 
@@ -238,27 +237,31 @@ export default function App() {
       });
     };
     const pdfDoc = await loadingTask.promise;
-    const worker = await createWorker('ind+eng', 1);
     let fullText = '';
-    try {
-      for (let pageNumber = 1; pageNumber <= pdfDoc.numPages; pageNumber++) {
-        setUploadNotice({ type: 'loading', msg: `Membaca halaman PDF ${pageNumber} dari ${pdfDoc.numPages} dengan OCR...` });
-        const page = await pdfDoc.getPage(pageNumber);
-        const textContent = await page.getTextContent();
-        let pageText = textContent.items.map(item => item.str).join(' ');
-        if (pageText.trim().length < 30) {
-          const viewport = page.getViewport({ scale: 2 });
-          const canvas = document.createElement('canvas');
-          canvas.width = Math.ceil(viewport.width);
-          canvas.height = Math.ceil(viewport.height);
-          await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
-          pageText = (await worker.recognize(canvas)).data.text;
-          canvas.width = 0;
-          canvas.height = 0;
-        }
-        fullText += `\n${pageText}`;
+    for (let pageNumber = 1; pageNumber <= pdfDoc.numPages; pageNumber++) {
+      setUploadNotice({ type: 'loading', msg: `Mengambil teks langsung dari halaman PDF ${pageNumber} dari ${pdfDoc.numPages}...` });
+      const page = await pdfDoc.getPage(pageNumber);
+      const textContent = await page.getTextContent();
+      const lines = [];
+      for (const item of textContent.items) {
+        if (!item.str?.trim()) continue;
+        const x = item.transform?.[4] ?? 0;
+        const y = item.transform?.[5] ?? 0;
+        let line = lines.find(candidate => Math.abs(candidate.y - y) <= 2.5);
+        if (!line) { line = { y, items: [] }; lines.push(line); }
+        line.items.push({ x, width: item.width || 0, text: item.str.trim() });
       }
-    } finally { await worker.terminate(); }
+      const pageLines = lines.sort((a, b) => b.y - a.y).map(line => {
+        const parts = line.items.sort((a, b) => a.x - b.x);
+        return parts.reduce((text, part, index) => {
+          if (!index) return part.text;
+          const previous = parts[index - 1];
+          const gap = part.x - (previous.x + previous.width);
+          return `${text}${gap > 2 ? ' ' : ''}${part.text}`;
+        }, '');
+      });
+      fullText += `\n${pageLines.join('\n')}`;
+    }
     return fullText;
   };
 
@@ -282,8 +285,9 @@ export default function App() {
     try {
       if (extension === 'pdf') {
         const text = await readPdfText(file);
+        if (text.replace(/\s/g, '').length < 80) throw new Error('PDF ini tidak memiliki lapisan teks yang dapat dibaca. Tidak ada OCR yang dijalankan. Gunakan PDF asli yang teksnya dapat dipilih/disalin atau CSV mutasi.');
         const parsed = parsePdfTransactions(text);
-        if (!parsed.length) throw new Error('OCR selesai, tetapi baris transaksi belum dikenali. PDF Anda tidak dikirim ke server; coba PDF yang lebih jelas atau gunakan CSV.');
+        if (!parsed.length) throw new Error('Teks PDF berhasil dibaca, tetapi susunan transaksi belum dikenali. Coba PDF mutasi lain atau CSV.');
         setPdfPreview({ fileName: file.name, transactions: parsed });
         setUploadNotice(null);
         return;
