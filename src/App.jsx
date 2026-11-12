@@ -178,24 +178,28 @@ export default function App() {
     setActiveTab('dashboard');
   };
 
-  const inferTransactionOwner = (description, fallbackRole) => {
-    const text = String(description || '');
-    const normalizedText = normalizeHeader(text);
-    const indicatesIncoming = /\b(dari|from)\b/i.test(text) && /transfer|setoran|kirim|incoming/i.test(text);
-    if (!indicatesIncoming) return fallbackRole;
+  const matchHouseholdMemberRole = (sourceText) => {
+    const normalizedText = normalizeHeader(String(sourceText || ''));
     const members = familyState?.members || [];
-    const matchedMember = members.find(member => {
+    const matchedMember = members.map(member => {
       const nameParts = String(member.name || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().match(/[a-z]+/g) || [];
       const significantParts = nameParts.filter(part => part.length > 1 && !['bpk', 'ibu', 'pak', 'bu', 'mr', 'mrs', 'suami', 'istri'].includes(part));
-      return significantParts.length >= 2 && significantParts.every(part => normalizedText.includes(part)) && ['SUAMI', 'ISTRI'].includes(member.role);
-    });
-    return matchedMember?.role || fallbackRole;
+      return { member, significantParts };
+    }).filter(candidate => candidate.significantParts.length >= 2 && candidate.significantParts.every(part => normalizedText.includes(part)) && ['SUAMI', 'ISTRI'].includes(candidate.member.role)).sort((a, b) => b.significantParts.length - a.significantParts.length)[0]?.member;
+    return matchedMember?.role || null;
+  };
+
+  const inferTransactionOwner = (description, fallbackRole) => {
+    const text = String(description || '');
+    const indicatesIncoming = /\b(dari|from)\b/i.test(text) && /transfer|setoran|kirim|incoming/i.test(text);
+    return indicatesIncoming ? matchHouseholdMemberRole(text) || fallbackRole : fallbackRole;
   };
 
   const parsePdfTransactions = (pages) => {
     const monthMap = { jan:'01', feb:'02', mar:'03', apr:'04', mei:'05', may:'05', jun:'06', jul:'07', agu:'08', aug:'08', sep:'09', okt:'10', oct:'10', nov:'11', des:'12', dec:'12' };
     const datePattern = /\b\d{1,2}[/-]\d{1,2}[/-](?:\d{2}|\d{4})\b|\b\d{1,2}\s+(?:Jan|Feb|Mar|Apr|Mei|May|Jun|Jul|Agu|Aug|Sep|Okt|Oct|Nov|Des|Dec)\s+\d{4}\b/i;
     const result = [];
+    let statementOwnerRole = currentUser?.role || 'SUAMI';
     for (const page of pages) {
       const headers = page.items.map(item => ({ ...item, label: normalizeHeader(item.str) }));
       const candidates = {
@@ -218,6 +222,8 @@ export default function App() {
         }
       }
       if (!columns) continue;
+      const statementHeaderText = page.items.filter(item => item.y > columns.headerY + 2).map(item => item.str).join(' ');
+      statementOwnerRole = matchHouseholdMemberRole(statementHeaderText) || statementOwnerRole;
 
       const lines = [];
       for (const item of page.items) {
@@ -276,7 +282,7 @@ export default function App() {
         if (!date || !Number.isFinite(amount) || !Number.isFinite(balance) || amount === 0) throw new Error(`Nominal atau saldo pada baris ${start.number} halaman ${page.pageNumber} tidak terbaca dari kolom tabel. Nilai yang tertangkap: nominal “${amountText || 'kosong'}”, saldo “${balanceText || 'kosong'}”.`);
         const lower = description.toLowerCase();
         const category = /pln|listrik|indihome|telkom|air|tagihan/.test(lower) ? 'Utilitas & Tagihan' : /transfer|ovo|gopay|dana|shopeepay/.test(lower) ? 'Transfer & E-Wallet' : /makan|resto|soto|kopi|qris|qr ke/.test(lower) ? 'Kuliner & Kopi' : 'Belanja Retail';
-        result.push({ ownerRole: inferTransactionOwner(description, currentUser?.role || 'SUAMI'), date, description, amount, balance, category });
+        result.push({ ownerRole: inferTransactionOwner(description, statementOwnerRole), date, description, amount, balance, category });
       });
     }
     // Cross-check the extracted text against the running balance before allowing a save.
