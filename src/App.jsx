@@ -39,10 +39,18 @@ const parseRupiah = (value) => {
   const cleaned = String(value || '').trim().replace(/\s/g, '');
   const negative = /^-/.test(cleaned) || /\bDB\b/i.test(cleaned) || /^\(.*\)$/.test(cleaned);
   const number = cleaned.replace(/[^\d.,]/g, '');
+  const lastComma = number.lastIndexOf(',');
+  const lastDot = number.lastIndexOf('.');
   let normalized = number;
-  if (number.includes(',')) normalized = number.replace(/\./g, '').replace(',', '.');
-  else if ((number.match(/\./g) || []).length > 1) normalized = number.replace(/\./g, '');
-  else if (/\.\d{3}$/.test(number)) normalized = number.replace('.', '');
+  if (lastComma >= 0 && lastDot >= 0) {
+    const decimalSeparator = lastComma > lastDot ? ',' : '.';
+    const thousandsSeparator = decimalSeparator === ',' ? /\./g : /,/g;
+    normalized = number.replace(thousandsSeparator, '').replace(decimalSeparator, '.');
+  } else if (lastComma >= 0) {
+    normalized = /,\d{2}$/.test(number) ? number.replace(',', '.') : number.replace(/,/g, '');
+  } else if (lastDot >= 0) {
+    normalized = /\.\d{2}$/.test(number) ? number : number.replace(/\./g, '');
+  }
   const amount = Number(normalized);
   return Number.isFinite(amount) ? Math.round((negative ? -amount : amount) * 100) / 100 : NaN;
 };
@@ -160,40 +168,71 @@ export default function App() {
     setActiveTab('dashboard');
   };
 
-  const parsePdfTransactions = (text) => {
-    const datePattern = /\b\d{1,2}[/-]\d{1,2}[/-](?:\d{2}|\d{4})\b|\b\d{1,2}\s+(?:Jan|Feb|Mar|Apr|Mei|May|Jun|Jul|Agu|Aug|Sep|Okt|Oct|Nov|Des|Dec)\s+\d{4}\b/ig;
-    // Statement amounts use grouped thousands (e.g. -500.000,00). Excluding
-    // ungrouped digit strings prevents account/reference numbers being read as money.
-    const moneyPattern = /[+-]?\(?\d{1,3}(?:[.,]\d{3})+(?:[.,]\d{2})?\)?(?:\s*(?:DB|CR|DR))?/gi;
+  const parsePdfTransactions = (pages) => {
     const monthMap = { jan:'01', feb:'02', mar:'03', apr:'04', mei:'05', may:'05', jun:'06', jul:'07', agu:'08', aug:'08', sep:'09', okt:'10', oct:'10', nov:'11', des:'12', dec:'12' };
+    const datePattern = /\b\d{1,2}[/-]\d{1,2}[/-](?:\d{2}|\d{4})\b|\b\d{1,2}\s+(?:Jan|Feb|Mar|Apr|Mei|May|Jun|Jul|Agu|Aug|Sep|Okt|Oct|Nov|Des|Dec)\s+\d{4}\b/i;
     const result = [];
-    for (const rawLine of text.split(/\r?\n/)) {
-      const dateMatch = rawLine.match(datePattern);
-      if (!dateMatch) continue;
-      let rawDate = dateMatch[0];
-      const rawTime = rawLine.match(/\b\d{1,2}:\d{2}(?::\d{2})?\b/)?.[0] || '00:00:00';
-      if (/\b[A-Za-z]{3}\b/.test(rawDate)) {
-        const parts = rawDate.match(/(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})/);
-        if (!parts) continue;
-        rawDate = `${parts[1]}/${monthMap[parts[2].toLowerCase()]}/${parts[3]}`;
+    for (const page of pages) {
+      const headers = page.items.map(item => ({ ...item, label: normalizeHeader(item.str) }));
+      const candidates = {
+        date: headers.filter(item => /tanggal|date/.test(item.label)),
+        description: headers.filter(item => /keterangan|remarks|description/.test(item.label)),
+        amount: headers.filter(item => /nominal|amount/.test(item.label)),
+        balance: headers.filter(item => /saldo|balance/.test(item.label)),
+      };
+      let columns = null;
+      let bestSpread = Infinity;
+      for (const date of candidates.date) for (const description of candidates.description) for (const amount of candidates.amount) for (const balance of candidates.balance) {
+        if (!(date.x < description.x && description.x < amount.x && amount.x < balance.x)) continue;
+        const ys = [date.y, description.y, amount.y, balance.y];
+        const spread = Math.max(...ys) - Math.min(...ys);
+        if (spread < bestSpread && spread <= 24) {
+          bestSpread = spread;
+          columns = { date: date.x, description: description.x, amount: amount.x, balance: balance.x };
+        }
       }
-      const date = normalizeDate(`${rawDate} ${rawTime}`);
-      let tail = rawLine.replace(datePattern, ' ').replace(/\s+/g, ' ').trim();
-      // Bank statements often place reference numbers inside the description.
-      // In Mandiri statements the last two grouped money values are nominal and balance.
-      const values = [...tail.matchAll(moneyPattern)].map(match => ({ raw: match[0].trim(), index: match.index }));
-      if (values.length < 2) continue;
-      const amountToken = values[values.length - 2];
-      const balanceToken = values[values.length - 1];
-      const description = tail.slice(0, amountToken.index).replace(/[|:•-]+$/g, '').trim();
-      if (!description || /^(saldo|balance|total|mutasi|tanggal|date)\b/i.test(description)) continue;
-      const amount = parseRupiah(amountToken.raw);
-      if (!Number.isFinite(amount) || amount === 0) continue;
-      const signedAmount = amount;
-      const lastValue = parseRupiah(balanceToken.raw);
-      const lower = description.toLowerCase();
-      const category = /pln|listrik|indihome|telkom|air|tagihan/.test(lower) ? 'Utilitas & Tagihan' : /transfer|ovo|gopay|dana|shopeepay/.test(lower) ? 'Transfer & E-Wallet' : /makan|resto|soto|kopi|qris|qr ke/.test(lower) ? 'Kuliner & Kopi' : 'Belanja Retail';
-      result.push({ ownerRole: currentUser?.role || 'SUAMI', date, description, amount: signedAmount, balance: Number.isFinite(lastValue) ? lastValue : undefined, category });
+      if (!columns) continue;
+
+      const lines = [];
+      for (const item of page.items) {
+        let line = lines.find(candidate => Math.abs(candidate.y - item.y) <= 2.5);
+        if (!line) { line = { y: item.y, items: [] }; lines.push(line); }
+        line.items.push(item);
+      }
+      lines.sort((a, b) => b.y - a.y);
+      const starts = lines.map((line, index) => {
+        const dateText = line.items.filter(item => item.x >= columns.date - 4 && item.x < columns.description - 2).sort((a, b) => a.x - b.x).map(item => item.str).join(' ');
+        return datePattern.test(dateText) ? { line, index, dateText } : null;
+      }).filter(Boolean);
+
+      starts.forEach((start, rowIndex) => {
+        const priorY = rowIndex > 0 ? starts[rowIndex - 1].line.y : start.line.y + 10;
+        const nextY = starts[rowIndex + 1]?.line.y ?? start.line.y - 24;
+        const top = (priorY + start.line.y) / 2;
+        const bottom = (start.line.y + nextY) / 2;
+        const rowItems = page.items.filter(item => item.y <= top && item.y > bottom);
+        const inColumn = (item, left, right) => item.x >= left - 2 && (right === Infinity || item.x < right - 2);
+        const textIn = (left, right) => rowItems.filter(item => inColumn(item, left, right)).sort((a, b) => b.y - a.y || a.x - b.x).map(item => item.str.trim()).filter(Boolean).join(' ');
+        const dateCell = textIn(columns.date, columns.description);
+        const description = textIn(columns.description, columns.amount).replace(/\s+/g, ' ').trim();
+        const amountText = textIn(columns.amount, columns.balance);
+        const balanceText = textIn(columns.balance, Infinity);
+        let rawDate = dateCell.match(datePattern)?.[0];
+        if (!rawDate || !description) return;
+        if (/\b[A-Za-z]{3}\b/.test(rawDate)) {
+          const parts = rawDate.match(/(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})/);
+          if (!parts) return;
+          rawDate = `${parts[1]}/${monthMap[parts[2].toLowerCase()]}/${parts[3]}`;
+        }
+        const time = dateCell.match(/\b\d{1,2}:\d{2}(?::\d{2})?\b/)?.[0] || '00:00:00';
+        const date = normalizeDate(`${rawDate} ${time}`);
+        const amount = parseRupiah(amountText);
+        const balance = parseRupiah(balanceText);
+        if (!date || !Number.isFinite(amount) || !Number.isFinite(balance) || amount === 0) return;
+        const lower = description.toLowerCase();
+        const category = /pln|listrik|indihome|telkom|air|tagihan/.test(lower) ? 'Utilitas & Tagihan' : /transfer|ovo|gopay|dana|shopeepay/.test(lower) ? 'Transfer & E-Wallet' : /makan|resto|soto|kopi|qris|qr ke/.test(lower) ? 'Kuliner & Kopi' : 'Belanja Retail';
+        result.push({ ownerRole: currentUser?.role || 'SUAMI', date, description, amount, balance, category });
+      });
     }
     // Cross-check the extracted text against the running balance before allowing a save.
     for (let index = 1; index < result.length; index++) {
@@ -236,42 +275,19 @@ export default function App() {
       });
     };
     const pdfDoc = await loadingTask.promise;
-    let fullText = '';
+    const pages = [];
     for (let pageNumber = 1; pageNumber <= pdfDoc.numPages; pageNumber++) {
       setUploadNotice({ type: 'loading', msg: `Mengambil teks langsung dari halaman PDF ${pageNumber} dari ${pdfDoc.numPages}...` });
       const page = await pdfDoc.getPage(pageNumber);
       const textContent = await page.getTextContent();
-      const lines = [];
-      for (const item of textContent.items) {
-        if (!item.str?.trim()) continue;
-        const x = item.transform?.[4] ?? 0;
-        const y = item.transform?.[5] ?? 0;
-        let line = lines.find(candidate => Math.abs(candidate.y - y) <= 2.5);
-        if (!line) { line = { y, items: [] }; lines.push(line); }
-        line.items.push({ x, width: item.width || 0, text: item.str.trim() });
-      }
-      const pageLines = lines.sort((a, b) => b.y - a.y).map(line => {
-        const parts = line.items.sort((a, b) => a.x - b.x);
-        return parts.reduce((text, part, index) => {
-          if (!index) return part.text;
-          const previous = parts[index - 1];
-          const gap = part.x - (previous.x + previous.width);
-          return `${text}${gap > 2 ? ' ' : ''}${part.text}`;
-        }, '');
-      });
-      // Keep wrapped descriptions and amounts with their transaction date. Text
-      // PDFs often store each visual baseline separately even within one row.
-      const transactionBlocks = [];
-      for (const line of pageLines) {
-        if (/\b\d{1,2}[/-]\d{1,2}[/-](?:\d{2}|\d{4})\b|\b\d{1,2}\s+(?:Jan|Feb|Mar|Apr|Mei|May|Jun|Jul|Agu|Aug|Sep|Okt|Oct|Nov|Des|Dec)\s+\d{4}\b/i.test(line)) {
-          transactionBlocks.push(line);
-        } else if (transactionBlocks.length) {
-          transactionBlocks[transactionBlocks.length - 1] += ` ${line}`;
-        }
-      }
-      fullText += `\n${transactionBlocks.join('\n')}`;
+      const items = textContent.items.filter(item => item.str?.trim()).map(item => ({
+        str: item.str.trim(),
+        x: item.transform?.[4] ?? 0,
+        y: item.transform?.[5] ?? 0,
+      }));
+      pages.push({ pageNumber, items });
     }
-    return fullText;
+    return pages;
   };
 
   const importTransactions = async (transactionsToImport) => {
@@ -293,10 +309,10 @@ export default function App() {
     setUploadNotice({ type: 'loading', msg: `Membaca e-statement: ${file.name}...` });
     try {
       if (extension === 'pdf') {
-        const text = await readPdfText(file);
-        if (text.replace(/\s/g, '').length < 80) throw new Error('PDF ini tidak memiliki teks digital yang dapat dibaca. Gunakan PDF asli yang teksnya dapat dipilih/disalin atau CSV mutasi.');
-        const parsed = parsePdfTransactions(text);
-        if (!parsed.length) throw new Error('Teks PDF berhasil dibaca, tetapi susunan transaksi belum dikenali. Coba PDF mutasi lain atau CSV.');
+        const pages = await readPdfText(file);
+        if (pages.reduce((total, page) => total + page.items.reduce((sum, item) => sum + item.str.length, 0), 0) < 80) throw new Error('PDF ini tidak memiliki teks digital yang dapat dibaca. Gunakan PDF asli yang teksnya dapat dipilih/disalin atau CSV mutasi.');
+        const parsed = parsePdfTransactions(pages);
+        if (!parsed.length) throw new Error('Teks PDF berhasil dibaca, tetapi kolom Tanggal, Keterangan, Nominal, dan Saldo belum dikenali. Pastikan PDF memuat tabel mutasi dengan kolom tersebut.');
         setPdfPreview({ fileName: file.name, transactions: parsed });
         setUploadNotice(null);
         return;
