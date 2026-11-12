@@ -172,12 +172,13 @@ export default function App() {
       const dateMatch = rawLine.match(datePattern);
       if (!dateMatch) continue;
       let rawDate = dateMatch[0];
+      const rawTime = rawLine.match(/\b\d{1,2}:\d{2}(?::\d{2})?\b/)?.[0] || '00:00:00';
       if (/\b[A-Za-z]{3}\b/.test(rawDate)) {
         const parts = rawDate.match(/(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})/);
         if (!parts) continue;
         rawDate = `${parts[1]}/${monthMap[parts[2].toLowerCase()]}/${parts[3]}`;
       }
-      const date = normalizeDate(rawDate);
+      const date = normalizeDate(`${rawDate} ${rawTime}`);
       let tail = rawLine.replace(datePattern, ' ').replace(/\s+/g, ' ').trim();
       // OCR often places transaction reference numbers inside the description.
       // In Mandiri statements the last two grouped money values are nominal and balance.
@@ -203,7 +204,7 @@ export default function App() {
       const delta = Math.round((current.balance - previous.balance) * 100) / 100;
       if (Math.abs(delta - current.amount) <= 0.02) current.amount = delta;
       else if (Math.abs(delta + current.amount) <= 0.02) current.amount = delta;
-      else throw new Error(`Validasi saldo gagal pada transaksi ${index + 1} (${current.date}). Hasil OCR belum aman disimpan. Gunakan PDF asli yang teksnya dapat disalin atau CSV mutasi.`);
+      else throw new Error(`Validasi saldo gagal pada transaksi ${index + 1} (${current.date}). Nominal terbaca ${current.amount.toLocaleString('id-ID')}, sedangkan perubahan saldo terbaca ${delta.toLocaleString('id-ID')}. OCR mungkin salah membaca nominal/saldo atau melewatkan baris. Impor dihentikan agar data keliru tidak tersimpan; coba PDF yang lebih jelas atau CSV mutasi.`);
     }
     return result;
   };
