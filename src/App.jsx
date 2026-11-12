@@ -3,7 +3,10 @@ import { useAuthActions } from '@convex-dev/auth/react';
 import { useConvexAuth, useMutation, useQuery } from 'convex/react';
 import { anyApi } from 'convex/server';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
+import pdfWorkerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url';
 import { createWorker } from 'tesseract.js';
+
+pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 import { 
   Wallet, ArrowDownLeft, ArrowUpRight, Zap, FileUp, Filter, Search, 
   Settings, LogOut, CheckCircle2, AlertCircle, RefreshCw, UserCheck, 
