@@ -82,6 +82,7 @@ export default function App() {
   const updateChartPreference = useMutation(api.households.updateChartRange);
   const addTransactions = useMutation(api.transactions.addMany);
   const correctIncomingTransferOwners = useMutation(api.transactions.correctIncomingTransferOwners);
+  const clearHouseholdTransactions = useMutation(api.transactions.clearHouseholdTransactions);
   const currentUser = familyState?.user ? {
     id: familyState.user._id,
     name: familyState.user.name || '',
@@ -114,6 +115,7 @@ export default function App() {
   const [pdfPasswordInput, setPdfPasswordInput] = useState('');
   const pdfPasswordCancelled = React.useRef(false);
   const ownerCorrectionStarted = React.useRef(false);
+  const [clearTransactionsDialog, setClearTransactionsDialog] = useState(false);
 
   useEffect(() => {
     if (!isAuthenticated || !familyState?.household || ownerCorrectionStarted.current) return;
@@ -345,6 +347,16 @@ export default function App() {
     const result = await addTransactions({ transactions: transactionsToImport });
     setUploadNotice({ type: 'success', msg: `Impor selesai: ${result.added} transaksi ditambahkan, ${result.corrected || 0} label pemilik diperbaiki, ${result.skipped} duplikat dilewati.` });
     setPdfPreview(null);
+  };
+
+  const handleClearTransactions = async () => {
+    try {
+      const result = await clearHouseholdTransactions({ confirmation: 'DELETE_TRANSACTIONS' });
+      setClearTransactionsDialog(false);
+      setUploadNotice({ type: 'success', msg: `${result.deleted} transaksi dihapus. Silakan unggah ulang e-Statement.` });
+    } catch (error) {
+      setUploadNotice({ type: 'error', msg: error.message || 'Transaksi tidak dapat dihapus.' });
+    }
   };
 
   // Import CSV or text-based PDF e-statements into the signed-in household.
@@ -651,6 +663,19 @@ export default function App() {
 
       {/* MAIN CONTAINER */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+
+        {clearTransactionsDialog && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/50 p-4" role="dialog" aria-modal="true" aria-labelledby="clear-transactions-title">
+            <section className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+              <h2 id="clear-transactions-title" className="text-lg font-bold text-slate-900">Hapus seluruh transaksi?</h2>
+              <p className="mt-2 text-sm leading-6 text-slate-600">Semua transaksi keluarga dan saldo awal yang tersimpan akan dihapus agar Anda bisa mengunggah ulang dari awal. Akun, anggota keluarga, dan kode undangan tetap ada.</p>
+              <div className="mt-5 flex justify-end gap-2">
+                <button type="button" onClick={() => setClearTransactionsDialog(false)} className="rounded-lg border border-slate-200 px-4 py-2.5 text-xs font-semibold text-slate-700">Batal</button>
+                <button type="button" onClick={handleClearTransactions} className="rounded-lg bg-rose-600 px-4 py-2.5 text-xs font-semibold text-white hover:bg-rose-700">Hapus transaksi</button>
+              </div>
+            </section>
+          </div>
+        )}
 
         {pdfPasswordPrompt && (
           <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/50 p-4" role="dialog" aria-modal="true" aria-labelledby="pdf-password-title">
@@ -1016,6 +1041,11 @@ export default function App() {
             <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
               <div className="mb-4"><h3 className="text-sm font-bold text-slate-900">Keamanan akun</h3><p className="mt-1 text-xs text-slate-500">Akun dilindungi Convex Auth. Fitur pemulihan kata sandi melalui email dapat diaktifkan setelah layanan email dikonfigurasi.</p></div>
               <button type="button" onClick={handleLogout} className="rounded-lg border border-rose-200 px-4 py-2.5 text-xs font-semibold text-rose-700 transition hover:bg-rose-50">Keluar dari akun</button>
+            </section>
+
+            <section className="rounded-xl border border-rose-200 bg-white p-5 shadow-sm sm:p-6">
+              <div className="mb-4"><h3 className="text-sm font-bold text-slate-900">Mulai ulang data transaksi</h3><p className="mt-1 text-xs leading-5 text-slate-500">Hapus seluruh transaksi dan saldo awal keluarga, lalu unggah kembali e-Statement dari awal.</p></div>
+              <button type="button" onClick={() => setClearTransactionsDialog(true)} className="rounded-lg border border-rose-200 px-4 py-2.5 text-xs font-semibold text-rose-700 transition hover:bg-rose-50">Hapus semua transaksi</button>
             </section>
           </div>
         )}
