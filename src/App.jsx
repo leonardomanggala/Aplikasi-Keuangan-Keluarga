@@ -204,6 +204,13 @@ export default function App() {
       const delta = Math.round((current.balance - previous.balance) * 100) / 100;
       if (Math.abs(delta - current.amount) <= 0.02) current.amount = delta;
       else if (Math.abs(delta + current.amount) <= 0.02) current.amount = delta;
+      // On some scanned statements OCR pulls the previous row's balance into
+      // the nominal column. Correct only when that exact balance is selected;
+      // the next row's balance then gives the transaction amount unambiguously.
+      else if (Math.abs(Math.abs(current.amount) - previous.balance) <= 0.02) {
+        current.amount = delta;
+        current.ocrBalanceCorrection = true;
+      }
       else throw new Error(`Validasi saldo gagal pada transaksi ${index + 1} (${current.date}). Nominal terbaca ${current.amount.toLocaleString('id-ID')}, sedangkan perubahan saldo terbaca ${delta.toLocaleString('id-ID')}. OCR mungkin salah membaca nominal/saldo atau melewatkan baris. Impor dihentikan agar data keliru tidak tersimpan; coba PDF yang lebih jelas atau CSV mutasi.`);
     }
     return result;
@@ -578,7 +585,7 @@ export default function App() {
             <section className="flex max-h-[90vh] w-full max-w-3xl flex-col rounded-2xl bg-white shadow-xl">
               <div className="border-b border-slate-200 p-5">
                 <h2 id="pdf-preview-title" className="text-lg font-bold text-slate-900">Periksa hasil baca PDF</h2>
-                <p className="mt-1 text-xs text-slate-500">{pdfPreview.transactions.length} transaksi terbaca dari {pdfPreview.fileName}. Pastikan tanggal, keterangan, dan tanda debit/kredit sudah benar sebelum disimpan.</p>
+                <p className="mt-1 text-xs text-slate-500">{pdfPreview.transactions.length} transaksi terbaca dari {pdfPreview.fileName}. Pastikan tanggal, keterangan, dan tanda debit/kredit sudah benar sebelum disimpan.{pdfPreview.transactions.some(transaction => transaction.ocrBalanceCorrection) && <span className="mt-1 block font-medium text-amber-700">Beberapa nominal dikoreksi memakai selisih saldo karena OCR membaca saldo baris sebelumnya.</span>}</p>
               </div>
               <div className="overflow-auto p-4">
                 <table className="w-full text-left text-xs">
