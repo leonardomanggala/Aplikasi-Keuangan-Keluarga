@@ -37,7 +37,7 @@ function parseCsvRows(text) {
 const normalizeHeader = (value) => value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z]/g, '');
 const parseRupiah = (value) => {
   const cleaned = String(value || '').trim().replace(/\s/g, '');
-  const negative = /^-/.test(cleaned) || /\bDB\b/i.test(cleaned) || /^\(.*\)$/.test(cleaned);
+  const negative = /^[-−]/.test(cleaned) || /\bDB\b/i.test(cleaned) || /^\(.*\)$/.test(cleaned);
   const number = cleaned.replace(/[^\d.,]/g, '');
   const lastComma = number.lastIndexOf(',');
   const lastDot = number.lastIndexOf('.');
@@ -218,7 +218,7 @@ export default function App() {
       }).filter(Boolean);
 
       starts.forEach((start, rowIndex) => {
-        const priorY = rowIndex > 0 ? starts[rowIndex - 1].line.y : start.line.y + 12;
+        const priorY = rowIndex > 0 ? starts[rowIndex - 1].line.y : columns.headerY;
         const nextY = starts[rowIndex + 1]?.line.y ?? start.line.y - 60;
         const top = (priorY + start.line.y) / 2;
         const bottom = (start.line.y + nextY) / 2;
@@ -227,13 +227,8 @@ export default function App() {
         const textIn = (left, right) => rowItems.filter(item => inColumn(item, left, right)).sort((a, b) => b.y - a.y || a.x - b.x).map(item => item.str.trim()).filter(Boolean).join(' ');
         const dateCell = textIn(columns.date, columns.description);
         const description = textIn(columns.description, columns.amount).replace(/\s+/g, ' ').trim();
-        const nearestCellText = (left, right) => lines
-          .filter(line => line.y <= top && line.y > bottom)
-          .map(line => ({ line, text: line.items.filter(item => inColumn(item, left, right)).sort((a, b) => a.x - b.x).map(item => item.str.trim()).filter(Boolean).join(' ') }))
-          .filter(cell => /\d/.test(cell.text))
-          .sort((a, b) => Math.abs(a.line.y - start.line.y) - Math.abs(b.line.y - start.line.y))[0]?.text || '';
-        const amountText = nearestCellText(columns.amount, columns.balance);
-        const balanceText = nearestCellText(columns.balance, Infinity);
+        const amountText = textIn(columns.amount, columns.balance);
+        const balanceText = textIn(columns.balance, Infinity);
         let rawDate = dateCell.match(datePattern)?.[0];
         if (!rawDate) throw new Error(`Tanggal pada baris ${start.number} halaman ${page.pageNumber} tidak terbaca dari kolom Tanggal.`);
         if (!description) throw new Error(`Keterangan pada baris ${start.number} halaman ${page.pageNumber} tidak terbaca dari kolom Keterangan.`);
