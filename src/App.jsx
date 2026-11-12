@@ -81,7 +81,6 @@ export default function App() {
   const updateProfileName = useMutation(api.households.updateProfileName);
   const updateChartPreference = useMutation(api.households.updateChartRange);
   const addTransactions = useMutation(api.transactions.addMany);
-  const correctIncomingTransferOwners = useMutation(api.transactions.correctIncomingTransferOwners);
   const clearHouseholdTransactions = useMutation(api.transactions.clearHouseholdTransactions);
   const currentUser = familyState?.user ? {
     id: familyState.user._id,
@@ -110,20 +109,12 @@ export default function App() {
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   const [uploadNotice, setUploadNotice] = useState(null);
+  const [uploadAccountOwner, setUploadAccountOwner] = useState('');
   const [pdfPreview, setPdfPreview] = useState(null);
   const [pdfPasswordPrompt, setPdfPasswordPrompt] = useState(null);
   const [pdfPasswordInput, setPdfPasswordInput] = useState('');
   const pdfPasswordCancelled = React.useRef(false);
-  const ownerCorrectionStarted = React.useRef(false);
   const [clearTransactionsDialog, setClearTransactionsDialog] = useState(false);
-
-  useEffect(() => {
-    if (!isAuthenticated || !familyState?.household || ownerCorrectionStarted.current) return;
-    ownerCorrectionStarted.current = true;
-    correctIncomingTransferOwners({}).then(result => {
-      if (result.corrected) setUploadNotice({ type: 'success', msg: `${result.corrected} label transfer masuk diperbaiki berdasarkan nama pengirim.` });
-    }).catch(() => { ownerCorrectionStarted.current = false; });
-  }, [isAuthenticated, familyState?.household?._id, correctIncomingTransferOwners]);
 
   // Login Handler
   const handleRegister = async (event) => {
@@ -191,17 +182,11 @@ export default function App() {
     return matchedMember?.role || null;
   };
 
-  const inferTransactionOwner = (description, fallbackRole) => {
-    const text = String(description || '');
-    const indicatesIncoming = /\b(dari|from)\b/i.test(text) && /transfer|setoran|kirim|incoming/i.test(text);
-    return indicatesIncoming ? matchHouseholdMemberRole(text) || fallbackRole : fallbackRole;
-  };
-
   const parsePdfTransactions = (pages) => {
     const monthMap = { jan:'01', feb:'02', mar:'03', apr:'04', mei:'05', may:'05', jun:'06', jul:'07', agu:'08', aug:'08', sep:'09', okt:'10', oct:'10', nov:'11', des:'12', dec:'12' };
     const datePattern = /\b\d{1,2}[/-]\d{1,2}[/-](?:\d{2}|\d{4})\b|\b\d{1,2}\s+(?:Jan|Feb|Mar|Apr|Mei|May|Jun|Jul|Agu|Aug|Sep|Okt|Oct|Nov|Des|Dec)\s+\d{4}\b/i;
     const result = [];
-    let statementOwnerRole = currentUser?.role || 'SUAMI';
+    let statementOwnerRole = null;
     for (const page of pages) {
       const headers = page.items.map(item => ({ ...item, label: normalizeHeader(item.str) }));
       const candidates = {
@@ -225,7 +210,7 @@ export default function App() {
       }
       if (!columns) continue;
       const statementHeaderText = page.items.filter(item => item.y > columns.headerY + 2).map(item => item.str).join(' ');
-      statementOwnerRole = matchHouseholdMemberRole(statementHeaderText) || statementOwnerRole;
+      statementOwnerRole = matchHouseholdMemberRole(statementHeaderText) || statementOwnerRole || uploadAccountOwner || null;
 
       const lines = [];
       for (const item of page.items) {
@@ -284,7 +269,8 @@ export default function App() {
         if (!date || !Number.isFinite(amount) || !Number.isFinite(balance) || amount === 0) throw new Error(`Nominal atau saldo pada baris ${start.number} halaman ${page.pageNumber} tidak terbaca dari kolom tabel. Nilai yang tertangkap: nominal “${amountText || 'kosong'}”, saldo “${balanceText || 'kosong'}”.`);
         const lower = description.toLowerCase();
         const category = /pln|listrik|indihome|telkom|air|tagihan/.test(lower) ? 'Utilitas & Tagihan' : /transfer|ovo|gopay|dana|shopeepay/.test(lower) ? 'Transfer & E-Wallet' : /makan|resto|soto|kopi|qris|qr ke/.test(lower) ? 'Kuliner & Kopi' : 'Belanja Retail';
-        result.push({ ownerRole: inferTransactionOwner(description, statementOwnerRole), date, description, amount, balance, category });
+        if (!statementOwnerRole) throw new Error('Pemilik rekening pada PDF tidak dikenali. Pilih nama pemilik rekening sebelum mengunggah ulang.');
+        result.push({ ownerRole: statementOwnerRole, date, description, amount, balance, category });
       });
     }
     // Cross-check the extracted text against the running balance before allowing a save.
@@ -346,6 +332,7 @@ export default function App() {
   const importTransactions = async (transactionsToImport) => {
     const result = await addTransactions({ transactions: transactionsToImport });
     setUploadNotice({ type: 'success', msg: `Impor selesai: ${result.added} transaksi ditambahkan, ${result.corrected || 0} label pemilik diperbaiki, ${result.skipped} duplikat dilewati.` });
+    setUploadAccountOwner('');
     setPdfPreview(null);
   };
 
@@ -406,7 +393,8 @@ export default function App() {
           return significantParts.length >= 2 && significantParts.every(part => ownerCellNormalized.includes(part));
         });
         const explicitOwner = /istri|ika/i.test(ownerCell) ? 'ISTRI' : /suami|leonardo/i.test(ownerCell) ? 'SUAMI' : matchedOwner?.role;
-        const owner = explicitOwner || inferTransactionOwner(description, currentUser.role);
+        const owner = explicitOwner || uploadAccountOwner;
+        if (!owner) throw new Error('Tentukan rekening ini atas nama Suami atau Istri, atau isi kolom Pemilik pada CSV.');
         const balanceValue = balanceIndex >= 0 && row[balanceIndex] ? parseRupiah(row[balanceIndex]) : undefined;
         return { ownerRole: owner, date, description, amount, balance: Number.isFinite(balanceValue) ? balanceValue : undefined, category };
       }).filter(transaction => transaction.date && transaction.description && Number.isFinite(transaction.amount));
@@ -700,6 +688,7 @@ export default function App() {
               <div className="border-b border-slate-200 p-5">
                 <h2 id="pdf-preview-title" className="text-lg font-bold text-slate-900">Periksa hasil baca PDF</h2>
                 <p className="mt-1 text-xs text-slate-500">{pdfPreview.transactions.length} transaksi terbaca dari {pdfPreview.fileName}. Pastikan tanggal, keterangan, dan tanda debit/kredit sudah benar sebelum disimpan.{pdfPreview.transactions.some(transaction => transaction.textBalanceCorrection) && <span className="mt-1 block font-medium text-amber-700">Beberapa nominal disesuaikan memakai selisih saldo karena PDF menempatkan saldo sebelumnya dekat dengan transaksi berikutnya.</span>}</p>
+                <p className="mt-2 text-xs font-semibold text-blue-700">Pemilik rekening terdeteksi: {pdfPreview.transactions[0]?.ownerRole === 'ISTRI' ? 'Istri' : 'Suami'}. Label transaksi mengikuti rekening pada e-Statement.</p>
               </div>
               <div className="overflow-auto p-4">
                 <table className="w-full text-left text-xs">
@@ -749,6 +738,11 @@ export default function App() {
                   <option value="ISTRI">👩‍💼 Istri (Ika Puspita)</option>
                 </select>
 
+                <select aria-label="Pemilik rekening e-Statement" value={uploadAccountOwner} onChange={(e) => setUploadAccountOwner(e.target.value)} className="min-w-36 text-xs border border-slate-200 rounded-lg px-3 py-2 bg-white font-semibold outline-none focus:ring-2 focus:ring-blue-500">
+                  <option value="">Rekening atas nama…</option>
+                  <option value="SUAMI">👨‍💼 Rekening Suami</option>
+                  <option value="ISTRI">👩‍💼 Rekening Istri</option>
+                </select>
                 <label className="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-3.5 py-2 rounded-lg transition inline-flex items-center space-x-2 shadow-sm">
                   <FileUp className="w-4 h-4" />
                   <span>Upload CSV / PDF e-Statement</span>
